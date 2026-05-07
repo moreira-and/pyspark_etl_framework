@@ -45,7 +45,9 @@ def log_event(
         "triggered_by": context.triggered_by,
         **fields,
     }
-    logger.log(level, json.dumps(payload, default=str, ensure_ascii=True, sort_keys=True))
+    logger.log(
+        level, json.dumps(payload, default=str, ensure_ascii=True, sort_keys=True)
+    )
 
 
 def logged_stage(

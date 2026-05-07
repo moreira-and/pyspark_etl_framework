@@ -1,6 +1,7 @@
+from typing import TYPE_CHECKING
+
 from etlstruct.models.config import EtlRunConfig, ExecutionMode
 from etlstruct.models.context import EtlExecutionContext
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from etlstruct.models.contracts import EtlStruct

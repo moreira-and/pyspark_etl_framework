@@ -7,17 +7,9 @@ from typing import Any, cast
 
 import pytest
 
-from etlstruct import (
-    CheckError,
-    EtlExecutionContext,
-    EtlRunConfig,
-    EtlStruct,
-    ExecutionMode,
-    ExtractError,
-    LoadError,
-    TransformError,
-    ValidateError,
-)
+from etlstruct import (CheckError, EtlExecutionContext, EtlRunConfig,
+                       EtlStruct, ExecutionMode, ExtractError, LoadError,
+                       TransformError, ValidateError)
 
 
 class FakeDataFrame:
