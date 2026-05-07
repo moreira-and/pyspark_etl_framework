@@ -1,0 +1,28 @@
+[build-system]
+requires = ["poetry-core>=1.9.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+name = "spark-etl-framework"
+version = "0.1.0"
+description = "Minimal PySpark ETL pipeline framework with explicit contracts and stage logging."
+readme = "README.md"
+license = "MIT"
+authors = ["Andre Moreira"]
+packages = [
+    { include = "etlstruct", from = "src" }
+]
+
+[tool.poetry.dependencies]
+python = ">=3.10,<4.0"
+pyspark = "*"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "*"
+black = "^26.3.1"
+isort = "^8.0.1"
+
+[tool.pytest.ini_options]
+addopts = ["-p", "no:cacheprovider"]
+pythonpath = ["src"]
+testpaths = ["tests"]
