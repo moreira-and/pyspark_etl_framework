@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, Generator
 
 import pytest
 
@@ -14,7 +15,7 @@ PySparkRuntimeError = errors.PySparkRuntimeError
 
 
 @pytest.fixture(scope="session")
-def spark():
+def spark() -> Generator[Any, None, None]:
     try:
         session = (
             SparkSession.builder.master("local[1]")
@@ -26,9 +27,12 @@ def spark():
         )
     except PySparkRuntimeError as exc:
         pytest.skip(f"Spark local session is unavailable: {exc}")
+        raise
 
-    yield session
-    session.stop()
+    try:
+        yield session
+    finally:
+        session.stop()
 
 
 def test_example_customer_pipeline_reads_transforms_and_writes_parquet(

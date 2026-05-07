@@ -17,7 +17,9 @@ O contrato e os modelos de execucao ficam em `src/etlstruct/models/`, com reexpo
 ## Instalacao
 
 ```bash
+poetry env use 3.11
 poetry install --with dev
+poetry run pytest
 ```
 
 ## Criando uma pipeline
