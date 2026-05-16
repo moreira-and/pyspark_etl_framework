@@ -3,12 +3,13 @@ from __future__ import annotations
 import time
 from abc import ABC, abstractmethod
 
+from pyspark.sql import DataFrame, SparkSession
+
 from etl_framework.contracts._type_checks import require_dataframe
 from etl_framework.infra.errors import CheckError, ExtractError, ensure_stage_error
 from etl_framework.infra.logger import get_logger, log_event
 from etl_framework.models.config import EtlRunConfig
 from etl_framework.models.context import EtlExecutionContext
-from pyspark.sql import DataFrame, SparkSession
 
 
 class Extract(ABC):

@@ -32,9 +32,7 @@ class SchemaMetadataValidator:
     def check_reserved_columns(self, reserved: frozenset[str]) -> None:
         """Reject reserved technical columns in a declared schema."""
         used_reserved = [
-            field.name
-            for field in self.struct.fields
-            if field.name.lower() in reserved
+            field.name for field in self.struct.fields if field.name.lower() in reserved
         ]
 
         if used_reserved:

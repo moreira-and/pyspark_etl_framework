@@ -6,7 +6,8 @@ import warnings
 from functools import reduce
 from typing import Any
 
-from pyspark.sql import DataFrame, Row, SparkSession, functions as F
+from pyspark.sql import DataFrame, Row, SparkSession
+from pyspark.sql import functions as F
 from pyspark.sql.types import StructField, StructType
 
 logger = logging.getLogger(__name__)
@@ -81,8 +82,7 @@ def _validate_schema_match(
         ]
         if extra_columns:
             message = (
-                "WARNING: Extra columns not declared in schema: "
-                f"{extra_columns}"
+                "WARNING: Extra columns not declared in schema: " f"{extra_columns}"
             )
             logger.warning(message)
             warnings.warn(message, UserWarning, stacklevel=2)
@@ -116,8 +116,7 @@ def _extract_field_checks(field: StructField, field_path: str) -> list[dict[str,
         raise TypeError(f"{field_path}.checks must be list/tuple")
 
     return [
-        _parse_check(check, field_path, index)
-        for index, check in enumerate(raw_checks)
+        _parse_check(check, field_path, index) for index, check in enumerate(raw_checks)
     ]
 
 
@@ -260,7 +259,7 @@ def _build_summary_batched(df: DataFrame, checks: list[dict[str, Any]]) -> DataF
     summaries = []
     total_batches = (len(checks) - 1) // MAX_CHECKS_PER_BATCH + 1
     for index in range(0, len(checks), MAX_CHECKS_PER_BATCH):
-        batch = checks[index:index + MAX_CHECKS_PER_BATCH]
+        batch = checks[index : index + MAX_CHECKS_PER_BATCH]
         logger.info(
             "Processing validation batch %s/%s",
             index // MAX_CHECKS_PER_BATCH + 1,

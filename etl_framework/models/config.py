@@ -3,8 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar
 
-from etl_framework.utils.schema_metadata import SchemaMetadataValidator
 from pyspark.sql.types import StructType
+
+from etl_framework.utils.schema_metadata import SchemaMetadataValidator
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,13 +43,15 @@ class EtlRunConfig:
 
     write_mode: str | None = None
 
-    TECHNICAL_COLUMNS: ClassVar[frozenset[str]] = frozenset({
-        "inserted_at",
-        "updated_at",
-        "etl_run_at",
-        "etl_run_id",
-        "is_valid",
-    })
+    TECHNICAL_COLUMNS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "inserted_at",
+            "updated_at",
+            "etl_run_at",
+            "etl_run_id",
+            "is_valid",
+        }
+    )
 
     def __post_init__(self) -> None:
         """Validate the configuration immediately after creation."""
@@ -105,7 +108,10 @@ class EtlRunConfig:
             if not isinstance(self.end_window, str) or not self.end_window.strip():
                 raise ValueError("end_window must be a non-empty string when set")
 
-        if self.write_mode is not None and self.write_mode not in {"overwrite", "append"}:
+        if self.write_mode is not None and self.write_mode not in {
+            "overwrite",
+            "append",
+        }:
             raise ValueError(
                 "write_mode must be None, 'overwrite' or 'append', "
                 f"got '{self.write_mode}'"

@@ -2,15 +2,20 @@ from __future__ import annotations
 
 import time
 
+from pyspark.sql import DataFrame, SparkSession
+
 from etl_framework.contracts.extract import Extract
 from etl_framework.contracts.load import Load
 from etl_framework.contracts.transform import Transform
-from etl_framework.infra.errors import ExtractError, LoadError, TransformError
-from etl_framework.infra.errors import ensure_stage_error
+from etl_framework.infra.errors import (
+    ExtractError,
+    LoadError,
+    TransformError,
+    ensure_stage_error,
+)
 from etl_framework.infra.logger import get_logger, log_event
 from etl_framework.models.config import EtlRunConfig
 from etl_framework.models.context import EtlExecutionContext
-from pyspark.sql import DataFrame, SparkSession
 
 
 class Pipeline:
