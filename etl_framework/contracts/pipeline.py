@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import time
-from uuid import uuid4
 
 from etl_framework.contracts.extract import Extract
 from etl_framework.contracts.load import Load
 from etl_framework.contracts.transform import Transform
+from etl_framework.infra.errors import EtlError, ExtractError, LoadError, TransformError
+from etl_framework.infra.errors import ensure_stage_error
 from etl_framework.infra.logger import get_logger, log_event
 from etl_framework.models.config import EtlRunConfig
 from etl_framework.models.context import EtlExecutionContext
@@ -13,6 +14,17 @@ from pyspark.sql import DataFrame, SparkSession
 
 
 class Pipeline:
+    """Linear ETL orchestrator owned by the framework.
+
+    The pipeline fixes the official execution order:
+    extract -> check -> transform -> validate -> load -> certify.
+
+    Concrete pipeline classes implement the specific behavior inside the
+    injected Extract, Transform and Load contracts. This class should not know
+    how to read, transform or write data; it only coordinates the flow,
+    context, logging and error propagation.
+    """
+
     def __init__(
         self,
         spark: SparkSession,
@@ -23,18 +35,17 @@ class Pipeline:
         load: Load,
         context: EtlExecutionContext | None = None,
     ) -> None:
+        """Create a pipeline run with its dependencies and trace context."""
         self.spark = spark
         self.config = config
-        self.context = context or EtlExecutionContext(
-            run_id=getattr(self.spark.sparkContext, "applicationId", None)
-            or str(uuid4()),
-        )
+        self.context = context or EtlExecutionContext()
         self.logger = get_logger(self.config.pipeline_name)
         self.extract_step = extract
         self.transform_step = transform
         self.load_step = load
 
     def run(self) -> DataFrame:
+        """Run the full official ETL flow and return the final DataFrame."""
         started_at = time.perf_counter()
         log_event(
             self.logger,
@@ -78,6 +89,7 @@ class Pipeline:
         return df
 
     def extract(self) -> DataFrame:
+        """Run the extract contract and apply dry-run limiting when enabled."""
         started_at = time.perf_counter()
         log_event(
             self.logger,
@@ -96,6 +108,11 @@ class Pipeline:
             )
             df = self._apply_dry_run_limit(df)
         except Exception as exc:
+            error = exc if isinstance(exc, EtlError) else ensure_stage_error(
+                exc,
+                ExtractError,
+                pipeline_name=self.config.pipeline_name,
+            )
             elapsed_ms = round((time.perf_counter() - started_at) * 1000, 2)
             log_event(
                 self.logger,
@@ -105,10 +122,12 @@ class Pipeline:
                 stage="extract",
                 status="failed",
                 elapsed_ms=elapsed_ms,
-                error_type=type(exc).__name__,
-                error_message=str(exc),
+                error_type=type(error).__name__,
+                error_message=str(error),
             )
-            raise
+            if error is exc:
+                raise
+            raise error from exc
 
         elapsed_ms = round((time.perf_counter() - started_at) * 1000, 2)
         log_event(
@@ -123,6 +142,7 @@ class Pipeline:
         return df
 
     def transform(self, df: DataFrame) -> DataFrame:
+        """Run the transform contract for a checked DataFrame."""
         started_at = time.perf_counter()
         log_event(
             self.logger,
@@ -141,6 +161,11 @@ class Pipeline:
                 context=self.context,
             )
         except Exception as exc:
+            error = exc if isinstance(exc, EtlError) else ensure_stage_error(
+                exc,
+                TransformError,
+                pipeline_name=self.config.pipeline_name,
+            )
             elapsed_ms = round((time.perf_counter() - started_at) * 1000, 2)
             log_event(
                 self.logger,
@@ -150,10 +175,12 @@ class Pipeline:
                 stage="transform",
                 status="failed",
                 elapsed_ms=elapsed_ms,
-                error_type=type(exc).__name__,
-                error_message=str(exc),
+                error_type=type(error).__name__,
+                error_message=str(error),
             )
-            raise
+            if error is exc:
+                raise
+            raise error from exc
 
         elapsed_ms = round((time.perf_counter() - started_at) * 1000, 2)
         log_event(
@@ -168,6 +195,7 @@ class Pipeline:
         return result
 
     def load(self, df: DataFrame) -> None:
+        """Run the load contract unless dry-run mode skips the write."""
         started_at = time.perf_counter()
         log_event(
             self.logger,
@@ -190,6 +218,17 @@ class Pipeline:
                     dry_run_show_rows=self.config.dry_run_show_rows,
                 )
                 df.show(self.config.dry_run_show_rows, truncate=False)
+                elapsed_ms = round((time.perf_counter() - started_at) * 1000, 2)
+                log_event(
+                    self.logger,
+                    "load_succeeded",
+                    self.config,
+                    self.context,
+                    stage="load",
+                    status="succeeded",
+                    elapsed_ms=elapsed_ms,
+                    dry_run=True,
+                )
                 return
 
             self.load_step.run(
@@ -199,6 +238,11 @@ class Pipeline:
                 context=self.context,
             )
         except Exception as exc:
+            error = exc if isinstance(exc, EtlError) else ensure_stage_error(
+                exc,
+                LoadError,
+                pipeline_name=self.config.pipeline_name,
+            )
             elapsed_ms = round((time.perf_counter() - started_at) * 1000, 2)
             log_event(
                 self.logger,
@@ -208,10 +252,12 @@ class Pipeline:
                 stage="load",
                 status="failed",
                 elapsed_ms=elapsed_ms,
-                error_type=type(exc).__name__,
-                error_message=str(exc),
+                error_type=type(error).__name__,
+                error_message=str(error),
             )
-            raise
+            if error is exc:
+                raise
+            raise error from exc
 
         elapsed_ms = round((time.perf_counter() - started_at) * 1000, 2)
         log_event(
@@ -225,6 +271,7 @@ class Pipeline:
         )
 
     def _apply_dry_run_limit(self, df: DataFrame) -> DataFrame:
+        """Limit extracted data when dry-run mode is enabled."""
         if not self.config.dry_run:
             return df
 
