@@ -1,0 +1,45 @@
+[tool.poetry]
+name = "spark-etl-framework"
+version = "0.1.0"
+description = "Framework interno para ETL com PySpark."
+authors = ["Andre Moreira"]
+license = "MIT"
+readme = "README.md"
+packages = [{ include = "etl_framework" }]
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.14"
+pyspark = ">=3.5,<4.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "*"
+pytest-cov = "*"
+black = "*"
+isort = "*"
+commitizen = "*"
+pre-commit = "*"
+
+[tool.black]
+line-length = 88
+target-version = ["py311"]
+
+[tool.isort]
+profile = "black"
+line_length = 88
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.coverage.run]
+source = ["etl_framework"]
+branch = true
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+version_provider = "poetry"
+tag_format = "v$version"
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
