@@ -1,0 +1,240 @@
+from __future__ import annotations
+
+import time
+from uuid import uuid4
+
+from etl_framework.contracts.extract import Extract
+from etl_framework.contracts.load import Load
+from etl_framework.contracts.transform import Transform
+from etl_framework.infra.logger import get_logger, log_event
+from etl_framework.models.config import EtlRunConfig
+from etl_framework.models.context import EtlExecutionContext
+from pyspark.sql import DataFrame, SparkSession
+
+
+class Pipeline:
+    def __init__(
+        self,
+        spark: SparkSession,
+        config: EtlRunConfig,
+        *,
+        extract: Extract,
+        transform: Transform,
+        load: Load,
+        context: EtlExecutionContext | None = None,
+    ) -> None:
+        self.spark = spark
+        self.config = config
+        self.context = context or EtlExecutionContext(
+            run_id=getattr(self.spark.sparkContext, "applicationId", None)
+            or str(uuid4()),
+        )
+        self.logger = get_logger(self.config.pipeline_name)
+        self.extract_step = extract
+        self.transform_step = transform
+        self.load_step = load
+
+    def run(self) -> DataFrame:
+        started_at = time.perf_counter()
+        log_event(
+            self.logger,
+            "run_started",
+            self.config,
+            self.context,
+            stage="run",
+            status="started",
+            dry_run=self.config.dry_run,
+        )
+
+        try:
+            df = self.extract()
+            df = self.transform(df)
+            self.load(df)
+        except Exception as exc:
+            elapsed_ms = round((time.perf_counter() - started_at) * 1000, 2)
+            log_event(
+                self.logger,
+                "run_failed",
+                self.config,
+                self.context,
+                stage="run",
+                status="failed",
+                elapsed_ms=elapsed_ms,
+                error_type=type(exc).__name__,
+                error_message=str(exc),
+            )
+            raise
+
+        elapsed_ms = round((time.perf_counter() - started_at) * 1000, 2)
+        log_event(
+            self.logger,
+            "run_succeeded",
+            self.config,
+            self.context,
+            stage="run",
+            status="succeeded",
+            elapsed_ms=elapsed_ms,
+        )
+        return df
+
+    def extract(self) -> DataFrame:
+        started_at = time.perf_counter()
+        log_event(
+            self.logger,
+            "extract_started",
+            self.config,
+            self.context,
+            stage="extract",
+            status="started",
+        )
+
+        try:
+            df = self.extract_step.run(
+                spark=self.spark,
+                config=self.config,
+                context=self.context,
+            )
+            df = self._apply_dry_run_limit(df)
+        except Exception as exc:
+            elapsed_ms = round((time.perf_counter() - started_at) * 1000, 2)
+            log_event(
+                self.logger,
+                "extract_failed",
+                self.config,
+                self.context,
+                stage="extract",
+                status="failed",
+                elapsed_ms=elapsed_ms,
+                error_type=type(exc).__name__,
+                error_message=str(exc),
+            )
+            raise
+
+        elapsed_ms = round((time.perf_counter() - started_at) * 1000, 2)
+        log_event(
+            self.logger,
+            "extract_succeeded",
+            self.config,
+            self.context,
+            stage="extract",
+            status="succeeded",
+            elapsed_ms=elapsed_ms,
+        )
+        return df
+
+    def transform(self, df: DataFrame) -> DataFrame:
+        started_at = time.perf_counter()
+        log_event(
+            self.logger,
+            "transform_started",
+            self.config,
+            self.context,
+            stage="transform",
+            status="started",
+        )
+
+        try:
+            result = self.transform_step.run(
+                df=df,
+                spark=self.spark,
+                config=self.config,
+                context=self.context,
+            )
+        except Exception as exc:
+            elapsed_ms = round((time.perf_counter() - started_at) * 1000, 2)
+            log_event(
+                self.logger,
+                "transform_failed",
+                self.config,
+                self.context,
+                stage="transform",
+                status="failed",
+                elapsed_ms=elapsed_ms,
+                error_type=type(exc).__name__,
+                error_message=str(exc),
+            )
+            raise
+
+        elapsed_ms = round((time.perf_counter() - started_at) * 1000, 2)
+        log_event(
+            self.logger,
+            "transform_succeeded",
+            self.config,
+            self.context,
+            stage="transform",
+            status="succeeded",
+            elapsed_ms=elapsed_ms,
+        )
+        return result
+
+    def load(self, df: DataFrame) -> None:
+        started_at = time.perf_counter()
+        log_event(
+            self.logger,
+            "load_started",
+            self.config,
+            self.context,
+            stage="load",
+            status="started",
+        )
+
+        try:
+            if self.config.dry_run:
+                log_event(
+                    self.logger,
+                    "dry_run_load_skipped",
+                    self.config,
+                    self.context,
+                    stage="load",
+                    status="skipped",
+                    dry_run_show_rows=self.config.dry_run_show_rows,
+                )
+                df.show(self.config.dry_run_show_rows, truncate=False)
+                return
+
+            self.load_step.run(
+                df=df,
+                spark=self.spark,
+                config=self.config,
+                context=self.context,
+            )
+        except Exception as exc:
+            elapsed_ms = round((time.perf_counter() - started_at) * 1000, 2)
+            log_event(
+                self.logger,
+                "load_failed",
+                self.config,
+                self.context,
+                stage="load",
+                status="failed",
+                elapsed_ms=elapsed_ms,
+                error_type=type(exc).__name__,
+                error_message=str(exc),
+            )
+            raise
+
+        elapsed_ms = round((time.perf_counter() - started_at) * 1000, 2)
+        log_event(
+            self.logger,
+            "load_succeeded",
+            self.config,
+            self.context,
+            stage="load",
+            status="succeeded",
+            elapsed_ms=elapsed_ms,
+        )
+
+    def _apply_dry_run_limit(self, df: DataFrame) -> DataFrame:
+        if not self.config.dry_run:
+            return df
+
+        log_event(
+            self.logger,
+            "dry_run_extract_limited",
+            self.config,
+            self.context,
+            stage="extract",
+            status="limited",
+            dry_run_limit=self.config.dry_run_limit,
+        )
+        return df.limit(self.config.dry_run_limit)
