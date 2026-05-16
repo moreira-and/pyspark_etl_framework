@@ -6,7 +6,7 @@ class EtlError(Exception):
 
     The framework uses this error family to make failures traceable without
     hiding the original exception. Every managed error can carry the pipeline
-    name, the official stage and the original cause.
+    name, run id, official stage and original cause.
     """
 
     default_stage: str | None = None
@@ -17,10 +17,12 @@ class EtlError(Exception):
         *,
         pipeline_name: str | None = None,
         stage: str | None = None,
+        run_id: str | None = None,
         cause: BaseException | None = None,
     ) -> None:
         self.pipeline_name = pipeline_name
         self.stage = stage or self.default_stage
+        self.run_id = run_id
         self.cause = cause
 
         error_message = self._build_message(message)
@@ -33,6 +35,8 @@ class EtlError(Exception):
         details = []
         if self.pipeline_name:
             details.append(f"pipeline_name={self.pipeline_name}")
+        if self.run_id:
+            details.append(f"run_id={self.run_id}")
         if self.stage:
             details.append(f"stage={self.stage}")
         if self.cause:
@@ -88,18 +92,31 @@ def ensure_stage_error(
     error_type: type[EtlError],
     *,
     pipeline_name: str,
+    run_id: str | None = None,
 ) -> EtlError:
-    """Return an EtlError that includes pipeline and stage context.
+    """Return an EtlError that includes pipeline, run and stage context.
 
     Existing framework errors with context are preserved. Generic exceptions,
     or framework errors raised without context, are wrapped in the expected
     stage-specific error type.
     """
-    if isinstance(exc, error_type) and exc.pipeline_name and exc.stage:
-        return exc
+    if isinstance(exc, EtlError):
+        has_trace_context = exc.pipeline_name and exc.stage
+        has_run_context = run_id is None or exc.run_id
+        if has_trace_context and has_run_context:
+            return exc
+
+        return type(exc)(
+            message=str(exc) or None,
+            pipeline_name=exc.pipeline_name or pipeline_name,
+            stage=exc.stage,
+            run_id=exc.run_id or run_id,
+            cause=exc.cause or exc,
+        )
 
     return error_type(
         message=str(exc) or None,
         pipeline_name=pipeline_name,
+        run_id=run_id,
         cause=exc,
     )

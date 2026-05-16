@@ -5,7 +5,7 @@ import time
 from etl_framework.contracts.extract import Extract
 from etl_framework.contracts.load import Load
 from etl_framework.contracts.transform import Transform
-from etl_framework.infra.errors import EtlError, ExtractError, LoadError, TransformError
+from etl_framework.infra.errors import ExtractError, LoadError, TransformError
 from etl_framework.infra.errors import ensure_stage_error
 from etl_framework.infra.logger import get_logger, log_event
 from etl_framework.models.config import EtlRunConfig
@@ -108,10 +108,11 @@ class Pipeline:
             )
             df = self._apply_dry_run_limit(df)
         except Exception as exc:
-            error = exc if isinstance(exc, EtlError) else ensure_stage_error(
+            error = ensure_stage_error(
                 exc,
                 ExtractError,
                 pipeline_name=self.config.pipeline_name,
+                run_id=self.context.run_id,
             )
             elapsed_ms = round((time.perf_counter() - started_at) * 1000, 2)
             log_event(
@@ -161,10 +162,11 @@ class Pipeline:
                 context=self.context,
             )
         except Exception as exc:
-            error = exc if isinstance(exc, EtlError) else ensure_stage_error(
+            error = ensure_stage_error(
                 exc,
                 TransformError,
                 pipeline_name=self.config.pipeline_name,
+                run_id=self.context.run_id,
             )
             elapsed_ms = round((time.perf_counter() - started_at) * 1000, 2)
             log_event(
@@ -217,7 +219,17 @@ class Pipeline:
                     status="skipped",
                     dry_run_show_rows=self.config.dry_run_show_rows,
                 )
-                df.show(self.config.dry_run_show_rows, truncate=False)
+                if self.config.dry_run_show_rows > 0:
+                    log_event(
+                        self.logger,
+                        "dry_run_sample_requested",
+                        self.config,
+                        self.context,
+                        stage="load",
+                        status="sample_requested",
+                        dry_run_show_rows=self.config.dry_run_show_rows,
+                    )
+                    df.show(self.config.dry_run_show_rows, truncate=False)
                 elapsed_ms = round((time.perf_counter() - started_at) * 1000, 2)
                 log_event(
                     self.logger,
@@ -238,10 +250,11 @@ class Pipeline:
                 context=self.context,
             )
         except Exception as exc:
-            error = exc if isinstance(exc, EtlError) else ensure_stage_error(
+            error = ensure_stage_error(
                 exc,
                 LoadError,
                 pipeline_name=self.config.pipeline_name,
+                run_id=self.context.run_id,
             )
             elapsed_ms = round((time.perf_counter() - started_at) * 1000, 2)
             log_event(

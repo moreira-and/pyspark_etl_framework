@@ -16,6 +16,8 @@ class EtlRunConfig:
     the pipeline, target metadata, dry-run behavior and optional StructType
     declarations. It validates configuration shape and declarative check
     metadata, but does not execute extract, transform or load logic.
+    start_window and end_window describe the extraction window available to the
+    extract step.
 
     Technical columns listed in TECHNICAL_COLUMNS are reserved for framework
     runtime metadata. They must not be declared in target_struct. For example,
@@ -26,17 +28,17 @@ class EtlRunConfig:
     target_schema: str
     target_table: str
     target_path: str
-    target_key: list[str]
+    target_key: tuple[str, ...]
 
     dry_run: bool = False
     dry_run_limit: int = 100
-    dry_run_show_rows: int = 20
+    dry_run_show_rows: int = 0
 
     source_struct: StructType | None = None
     target_struct: StructType | None = None
 
-    gt_date: str | None = None
-    lt_date: str | None = None
+    start_window: str | None = None
+    end_window: str | None = None
 
     write_mode: str | None = None
 
@@ -50,6 +52,17 @@ class EtlRunConfig:
 
     def __post_init__(self) -> None:
         """Validate the configuration immediately after creation."""
+        if isinstance(self.target_key, str):
+            raise ValueError("target_key must contain non-empty strings, not a string")
+
+        if self.target_key is not None:
+            try:
+                object.__setattr__(self, "target_key", tuple(self.target_key))
+            except TypeError as exc:
+                raise ValueError(
+                    "target_key must contain only non-empty strings"
+                ) from exc
+
         self._validate_basic_config()
         self._validate_schemas()
 
@@ -83,6 +96,14 @@ class EtlRunConfig:
 
         if self.dry_run_show_rows < 0:
             raise ValueError("dry_run_show_rows cannot be negative")
+
+        if self.start_window is not None:
+            if not isinstance(self.start_window, str) or not self.start_window.strip():
+                raise ValueError("start_window must be a non-empty string when set")
+
+        if self.end_window is not None:
+            if not isinstance(self.end_window, str) or not self.end_window.strip():
+                raise ValueError("end_window must be a non-empty string when set")
 
         if self.write_mode is not None and self.write_mode not in {"overwrite", "append"}:
             raise ValueError(

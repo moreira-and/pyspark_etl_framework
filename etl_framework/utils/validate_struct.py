@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+import warnings
 from functools import reduce
 from typing import Any
 
@@ -18,20 +19,22 @@ def validate_struct(
     df: DataFrame,
     schema: StructType,
     compute_summary: bool = False,
+    strict: bool = False,
 ) -> tuple[DataFrame, DataFrame | None]:
     """Validate a DataFrame against a StructType contract.
 
     The function validates expected column names and data types, then executes
-    simple declarative checks stored in StructField metadata. Error-severity
-    checks define the generated is_valid technical column. The input DataFrame
-    must not already contain is_valid; this prevents silent overwrite after a
-    previous validation step. Summary calculation is optional because it
-    triggers Spark actions.
+    simple declarative checks stored in StructField metadata. Missing columns
+    and incompatible types are errors. Extra columns produce warnings only when
+    strict mode is enabled. Error-severity checks define the generated is_valid
+    technical column. The input DataFrame must not already contain is_valid;
+    this prevents silent overwrite after a previous validation step. Summary
+    calculation is optional because it triggers Spark actions.
     """
     if df is None or schema is None:
         raise ValueError("DataFrame and schema cannot be None")
 
-    _validate_schema_match(df, schema)
+    _validate_schema_match(df, schema, strict=strict)
 
     checks = _extract_all_checks(schema)
     logger.info("Validating with %s checks", len(checks))
@@ -46,14 +49,20 @@ def validate_struct(
     return validated_df, summary_df
 
 
-def _validate_schema_match(df: DataFrame, expected: StructType) -> None:
-    """Validate expected columns and data types using Spark schema metadata."""
+def _validate_schema_match(
+    df: DataFrame,
+    expected: StructType,
+    *,
+    strict: bool = False,
+) -> None:
+    """Validate expected columns and warn about extras when strict is enabled."""
     actual = {field.name: field.dataType for field in df.schema.fields}
+    expected_columns = {field.name for field in expected.fields}
 
     errors = []
     for field in expected.fields:
         if field.name not in actual:
-            errors.append(f"Missing: '{field.name}'")
+            errors.append(f"ERROR: Missing column '{field.name}'")
             continue
 
         expected_type = field.dataType.simpleString()
@@ -61,8 +70,22 @@ def _validate_schema_match(df: DataFrame, expected: StructType) -> None:
 
         if expected_type != actual_type:
             errors.append(
-                f"'{field.name}': expected {expected_type}, got {actual_type}"
+                f"ERROR: '{field.name}': expected {expected_type}, got {actual_type}"
             )
+
+    if strict:
+        extra_columns = [
+            field.name
+            for field in df.schema.fields
+            if field.name not in expected_columns
+        ]
+        if extra_columns:
+            message = (
+                "WARNING: Extra columns not declared in schema: "
+                f"{extra_columns}"
+            )
+            logger.warning(message)
+            warnings.warn(message, UserWarning, stacklevel=2)
 
     if errors:
         raise ValueError("Schema mismatch:\n  - " + "\n  - ".join(errors))
@@ -152,10 +175,11 @@ def _add_is_valid_column(df: DataFrame, checks: list[dict[str, Any]]) -> DataFra
     if not error_checks:
         return df.withColumn("is_valid", F.lit(True))
 
-    is_valid = None
-    for check in error_checks:
+    first_check, *remaining_checks = error_checks
+    is_valid = F.coalesce(F.expr(first_check["rule"]).cast("boolean"), F.lit(False))
+    for check in remaining_checks:
         rule = F.coalesce(F.expr(check["rule"]).cast("boolean"), F.lit(False))
-        is_valid = rule if is_valid is None else (is_valid & rule)
+        is_valid = is_valid & rule
 
     return df.withColumn("is_valid", is_valid)
 

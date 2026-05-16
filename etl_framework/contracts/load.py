@@ -35,6 +35,7 @@ class Load(ABC):
                 exc,
                 LoadError,
                 pipeline_name=config.pipeline_name,
+                run_id=context.run_id,
             )
             if error is exc:
                 raise
@@ -56,6 +57,7 @@ class Load(ABC):
                 exc,
                 CertifyError,
                 pipeline_name=config.pipeline_name,
+                run_id=context.run_id,
             )
             elapsed_ms = round((time.perf_counter() - started_at) * 1000, 2)
             log_event(
