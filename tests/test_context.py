@@ -13,6 +13,7 @@ def test_execution_context_defaults_are_traceable() -> None:
     # Assert
     assert UUID(context.run_id)
     assert context.started_at.tzinfo is timezone.utc
+    assert context.metrics == {}
 
 
 def test_execution_context_accepts_explicit_trace_values() -> None:
@@ -28,3 +29,11 @@ def test_execution_context_accepts_explicit_trace_values() -> None:
     # Assert
     assert context.run_id == "run-001"
     assert context.started_at == started_at
+
+
+def test_execution_context_accepts_explicit_metrics() -> None:
+    # Arrange / Act
+    context = EtlExecutionContext(metrics={"rows_read": 10, "quality_status": "ok"})
+
+    # Assert
+    assert context.metrics == {"rows_read": 10, "quality_status": "ok"}

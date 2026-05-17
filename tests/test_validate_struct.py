@@ -287,3 +287,123 @@ def test_validate_struct_rejects_existing_is_valid_column(
     # Act / Assert
     with pytest.raises(ValueError, match="already contains an is_valid column"):
         validate_struct(df, schema)
+
+
+@pytest.mark.parametrize(
+    ("rule", "expected_message"),
+    [
+        pytest.param("amount >", "Invalid SQL check rule", id="invalid-syntax"),
+        pytest.param("missing_amount > 0", "Available columns", id="missing-column"),
+    ],
+)
+def test_validate_struct_reports_invalid_sql_rules_clearly(
+    spark: SparkSession,
+    rule: str,
+    expected_message: str,
+) -> None:
+    # Arrange
+    df = spark.createDataFrame(
+        [(1,)],
+        StructType([StructField("amount", IntegerType(), nullable=False)]),
+    )
+    schema = StructType(
+        [
+            StructField(
+                "amount",
+                IntegerType(),
+                nullable=False,
+                metadata={
+                    "checks": [
+                        {
+                            "name": "bad_amount_rule",
+                            "rule": rule,
+                            "severity": "error",
+                        }
+                    ]
+                },
+            )
+        ]
+    )
+
+    # Act / Assert
+    with pytest.raises(ValueError, match=expected_message) as exc_info:
+        validate_struct(df, schema)
+    assert "bad_amount_rule" in str(exc_info.value)
+
+
+def test_validate_struct_accepts_nested_field_rules(spark: SparkSession) -> None:
+    # Arrange
+    nested_type = StructType([StructField("amount", IntegerType(), nullable=False)])
+    df = spark.createDataFrame(
+        [((10,),), ((0,),)],
+        StructType([StructField("payload", nested_type, nullable=False)]),
+    )
+    schema = StructType(
+        [
+            StructField(
+                "payload",
+                StructType(
+                    [
+                        StructField(
+                            "amount",
+                            IntegerType(),
+                            nullable=False,
+                            metadata={
+                                "checks": [
+                                    {
+                                        "name": "payload_amount_positive",
+                                        "rule": "payload.amount > 0",
+                                        "severity": "error",
+                                    }
+                                ]
+                            },
+                        )
+                    ]
+                ),
+                nullable=False,
+            )
+        ]
+    )
+
+    # Act
+    validated_df, summary_df = validate_struct(df, schema)
+
+    # Assert
+    assert summary_df is None
+    assert validated_df.select("is_valid").collect() == [(True,), (False,)]
+
+
+def test_validate_struct_batches_many_summary_checks(spark: SparkSession) -> None:
+    # Arrange
+    checks = [
+        {
+            "name": f"amount_non_negative_{index}",
+            "rule": "amount >= 0",
+            "severity": "warning",
+        }
+        for index in range(105)
+    ]
+    df = spark.createDataFrame(
+        [(1,), (2,)],
+        StructType([StructField("amount", IntegerType(), nullable=False)]),
+    )
+    schema = StructType(
+        [
+            StructField(
+                "amount",
+                IntegerType(),
+                nullable=False,
+                metadata={"checks": checks},
+            )
+        ]
+    )
+
+    # Act
+    validated_df, summary_df = validate_struct(df, schema, compute_summary=True)
+
+    # Assert
+    assert validated_df.select("is_valid").distinct().collect() == [(True,)]
+    assert summary_df is not None
+    summary_rows = summary_df.select("check", "failed_count", "passed").collect()
+    assert len(summary_rows) == 105
+    assert all(row.failed_count == 0 and row.passed is True for row in summary_rows)

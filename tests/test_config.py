@@ -68,6 +68,12 @@ def test_config_rejects_negative_dry_run_show_rows() -> None:
         make_config(dry_run_show_rows=-1)
 
 
+def test_config_rejects_show_rows_in_production_mode() -> None:
+    # Arrange / Act / Assert
+    with pytest.raises(ValueError, match="only when dry_run=True"):
+        make_config(dry_run=False, dry_run_show_rows=1)
+
+
 @pytest.mark.parametrize("field", ["start_window", "end_window"])
 @pytest.mark.parametrize("invalid_window", ["", "   ", 20260101])
 def test_config_rejects_invalid_window_values(

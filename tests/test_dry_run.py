@@ -169,7 +169,7 @@ def test_dry_run_limits_after_check_and_skips_load(spark: SparkSession) -> None:
     assert events == ["extract", "check", "transform", "validate"]
 
 
-def test_show_is_not_called_in_production_even_when_show_rows_is_positive(
+def test_show_is_not_called_in_production(
     spark: SparkSession,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -177,7 +177,7 @@ def test_show_is_not_called_in_production_even_when_show_rows_is_positive(
     show_calls = capture_show_calls(monkeypatch)
     pipeline, _, _, _, _ = _pipeline(
         spark,
-        _config(dry_run=False, dry_run_limit=2, dry_run_show_rows=2),
+        _config(dry_run=False, dry_run_limit=2),
     )
 
     # Act
