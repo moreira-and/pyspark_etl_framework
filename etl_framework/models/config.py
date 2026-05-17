@@ -130,3 +130,18 @@ class EtlRunConfig:
             validator = SchemaMetadataValidator(self.target_struct, "target_struct")
             validator.validate()
             validator.check_reserved_columns(self.TECHNICAL_COLUMNS)
+            self._validate_target_key_in_target_struct()
+
+    def _validate_target_key_in_target_struct(self) -> None:
+        """Ensure target keys refer to declared business output columns."""
+        if self.target_struct is None:
+            return
+
+        target_columns = {field.name for field in self.target_struct.fields}
+        missing_keys = [key for key in self.target_key if key not in target_columns]
+
+        if missing_keys:
+            raise ValueError(
+                "target_key contains columns not present in target_struct: "
+                f"{missing_keys}"
+            )

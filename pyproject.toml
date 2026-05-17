@@ -30,6 +30,9 @@ line_length = 88
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = [
+    "integration: tests that exercise a complete local Spark pipeline",
+]
 
 [tool.coverage.run]
 source = ["etl_framework"]

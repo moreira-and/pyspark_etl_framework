@@ -140,7 +140,7 @@ Configurações relevantes estão em `pyproject.toml`:
 - Não há CLI própria.
 - Não há diretório de exemplos dedicado.
 - A pasta `docs` está vazia.
-- A suíte de testes atual é mínima.
+- A suíte de testes atual valida contratos do framework com Spark local.
 - `dry_run` limita dados após `_extract` e `_check`, não antes da leitura.
 
 ## Referência Arquitetural
