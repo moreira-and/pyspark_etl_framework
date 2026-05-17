@@ -39,6 +39,7 @@ def validate_struct(
 
     checks = _extract_all_checks(schema)
     logger.info("Validating with %s checks", len(checks))
+    _validate_check_rules(df, checks)
 
     validated_df = _add_is_valid_column(df, checks)
 
@@ -181,6 +182,23 @@ def _add_is_valid_column(df: DataFrame, checks: list[dict[str, Any]]) -> DataFra
         is_valid = is_valid & rule
 
     return df.withColumn("is_valid", is_valid)
+
+
+def _validate_check_rules(df: DataFrame, checks: list[dict[str, Any]]) -> None:
+    """Fail fast on SQL rules that Spark cannot resolve without running a job."""
+    for check in checks:
+        rule = check["rule"]
+        try:
+            rule_df = df.select(F.expr(rule).cast("boolean").alias(check["alias"]))
+            _ = rule_df.schema
+        except Exception as exc:
+            available_columns = ", ".join(df.columns)
+            raise ValueError(
+                "Invalid SQL check rule "
+                f"'{check['name']}' for field '{check['field']}': {rule}. "
+                f"Available columns: [{available_columns}]. "
+                f"Spark error: {type(exc).__name__}: {exc}"
+            ) from exc
 
 
 def _build_checks_summary(df: DataFrame, checks: list[dict[str, Any]]) -> DataFrame:

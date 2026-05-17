@@ -100,6 +100,11 @@ class EtlRunConfig:
         if self.dry_run_show_rows < 0:
             raise ValueError("dry_run_show_rows cannot be negative")
 
+        if not self.dry_run and self.dry_run_show_rows > 0:
+            raise ValueError(
+                "dry_run_show_rows can be greater than zero only when dry_run=True"
+            )
+
         if self.start_window is not None:
             if not isinstance(self.start_window, str) or not self.start_window.strip():
                 raise ValueError("start_window must be a non-empty string when set")
