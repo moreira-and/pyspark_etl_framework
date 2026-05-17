@@ -10,6 +10,10 @@ linear, explícito e fácil de depurar.
   mínima.
 - [MANIFEST.md](MANIFEST.md): contrato arquitetural, regras de evolução e
   governança técnica.
+- [docs/README.md](docs/README.md): índice dos documentos operacionais e de
+  auditoria.
+- [docs/production_readiness.md](docs/production_readiness.md): checklist de
+  produção, load seguro, data quality, observabilidade e CI.
 
 ## Visão Geral
 
@@ -53,6 +57,10 @@ injeção de `Extract`, `Transform` e `Load`.
 
 ```text
 spark-etl-framework/
+├── .github/workflows/ci.yml
+├── docs/
+│   ├── README.md
+│   └── production_readiness.md
 ├── etl_framework/
 │   ├── contracts/      # Pipeline, Extract, Transform, Load e type checks
 │   ├── infra/          # logging e erros gerenciados
@@ -82,7 +90,7 @@ spark-etl-framework/
 Pré-requisitos:
 
 - Python `>=3.11,<3.14`
-- Poetry
+- Poetry `2.1.4`
 - PySpark `>=3.5,<4.0`
 
 Instalação local:
@@ -90,6 +98,8 @@ Instalação local:
 ```bash
 poetry install --with dev
 ```
+
+O CI usa Poetry `2.1.4`, a mesma versão que gerou `poetry.lock`.
 
 Dependência externa de runtime declarada:
 
@@ -118,14 +128,12 @@ O quick start cobre:
 
 ## Desenvolvimento
 
-Comandos úteis:
+Comandos oficiais de validação, alinhados ao CI:
 
 ```bash
-poetry run pytest
-poetry run pytest --cov=etl_framework
-poetry run black .
-poetry run isort .
-poetry run pre-commit run --all-files
+poetry run python -m black --check --diff etl_framework tests
+poetry run isort --check-only etl_framework tests
+poetry run pytest --cov=etl_framework --cov-report=term-missing
 ```
 
 Configurações relevantes estão em `pyproject.toml`:
@@ -133,15 +141,18 @@ Configurações relevantes estão em `pyproject.toml`:
 - `black`: line length `88`;
 - `isort`: profile `black`;
 - `pytest`: testes em `tests`;
-- `coverage`: fonte em `etl_framework`.
+- `coverage`: fonte em `etl_framework`, com mínimo obrigatório configurado.
 
 ## Limitações Atuais
 
 - Não há CLI própria.
 - Não há diretório de exemplos dedicado.
-- A pasta `docs` está vazia.
+- A pasta `docs` contém o guia operacional de prontidão produtiva.
 - A suíte de testes atual valida contratos do framework com Spark local.
 - `dry_run` limita dados após `_extract` e `_check`, não antes da leitura.
+- Uso produtivo exige seguir o checklist em
+  [docs/production_readiness.md](docs/production_readiness.md), especialmente
+  para idempotência de `Load`, data quality e métricas explícitas.
 
 ## Referência Arquitetural
 

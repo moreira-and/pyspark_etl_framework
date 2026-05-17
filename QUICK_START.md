@@ -2,12 +2,17 @@
 
 Primeiros passos para executar uma pipeline mínima com `spark-etl-framework`.
 
-Use este arquivo para começar. Use [README.md](README.md) para visão geral e
-[MANIFEST.md](MANIFEST.md) para regras arquiteturais.
+Use este arquivo para começar. Para uma leitura mais explicativa do exemplo,
+leia [docs/quick_start_explained.md](docs/quick_start_explained.md). Use
+[README.md](README.md) para visão geral e [MANIFEST.md](MANIFEST.md) para regras
+arquiteturais.
 
 ## 1. Instale o Ambiente
 
+Use Poetry `2.1.4`, a mesma versão usada pelo CI e pelo `poetry.lock`.
+
 ```bash
+poetry --version
 poetry install --with dev
 ```
 
@@ -122,11 +127,48 @@ Com `dry_run=True`, a pipeline:
 - pula a escrita;
 - mostra até `dry_run_show_rows` linhas, se esse valor for maior que zero.
 
-Para executar a escrita real, altere:
+Para executar a escrita real, altere os dois campos abaixo. `dry_run_show_rows`
+deve voltar para `0`, porque o framework rejeita exibicao de linhas em modo
+normal para evitar vazamento acidental de dados.
 
 ```python
 dry_run=False
+dry_run_show_rows=0
 ```
+
+O `QuickLoad` acima é apenas didático. Para produção, implemente staging,
+commit idempotente e `_certify` lendo o destino real. Use o padrão em
+[docs/production_readiness.md](docs/production_readiness.md) antes de habilitar
+uma pipeline com milhões de linhas.
+
+## Notebook Parser: from raw .ipynb to etl_framework pipeline
+
+Use this workflow when you need to convert an exploratory notebook into a
+structured ETL pipeline.
+
+The parser works in three controlled artifacts:
+
+1. `raw_*.ipynb` - exact copy of the original notebook for historical tracking.
+2. `cln_*.ipynb` - cleaned notebook with sections, subtitles and
+   parser-friendly structure.
+3. `cfg_*.py` - final Python implementation compatible with `etl_framework`.
+
+The standard artifact directory is:
+
+```text
+prompts/notebook_parser/notebook_parser_runs/<nome_semantico_notebook>/
+  raw_<nome_semantico_notebook>.ipynb
+  cln_<nome_semantico_notebook>.ipynb
+  cfg_<nome_semantico_notebook>.py
+```
+
+This workflow does not guarantee automatic conversion of any notebook.
+Ambiguous notebooks must be reviewed manually before becoming production
+pipelines.
+
+For the full workflow, see:
+
+`/prompts/notebook_parser/00_overview.md`
 
 ## 4. O Que Alterar Primeiro
 
@@ -138,10 +180,16 @@ Depois que o quick start rodar:
 4. Use `validate_struct` ou validações simples em `QuickTransform._validate`.
 5. Ajuste `QuickLoad._load` para o destino real.
 6. Mantenha `dry_run=True` até validar o comportamento.
+7. Antes do go-live, aplique o checklist de produção, data quality e load seguro
+   em [docs/production_readiness.md](docs/production_readiness.md).
 
 ## 5. Onde Ler Depois
 
 - [README.md](README.md): visão geral e estrutura do projeto.
+- [docs/quick_start_explained.md](docs/quick_start_explained.md): explicação
+  humana do exemplo.
+- [prompts/notebook_parser/00_overview.md](prompts/notebook_parser/00_overview.md):
+  workflow de parser de notebook para pipeline.
 - [MANIFEST.md](MANIFEST.md): regras arquiteturais e limites do framework.
 - `etl_framework/contracts/pipeline.py`: coordenação do fluxo.
 - `etl_framework/models/config.py`: campos de configuração.

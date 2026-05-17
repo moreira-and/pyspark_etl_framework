@@ -196,6 +196,10 @@ framework. O arquivo `pyproject.toml` declara `pyspark` como dependência de
 produção e mantém ferramentas como `pytest`, `pytest-cov`, `black`, `isort`,
 `commitizen` e `pre-commit` em dependências de desenvolvimento.
 
+O gate reprodutível do projeto deve usar Poetry `2.1.4`, mesma versão que gerou
+`poetry.lock` e que o workflow de CI instala. Se essa versão mudar, a alteração
+deve atualizar documentação, workflow e lockfile juntos.
+
 Bibliotecas da standard library podem ser usadas quando reduzirem complexidade
 sem esconder comportamento relevante. Exemplos já usados no núcleo incluem
 `dataclasses`, `abc`, `logging`, `time`, `datetime`, `uuid`, `warnings`, `re`,
@@ -282,6 +286,11 @@ Logs devem permitir responder qual etapa iniciou, concluiu, falhou, foi limitada
 ou foi ignorada. Logs não devem depender de ferramenta externa para serem úteis
 em depuração local.
 
+Eventos do framework devem incluir metadados de destino quando disponíveis:
+`target_schema`, `target_table`, `target_path`, `target`, `write_mode` e métricas
+explicitamente calculadas pela pipeline concreta em `context.metrics`. O
+framework não deve calcular métricas de volume automaticamente.
+
 Logs não devem expor dados sensíveis. Mensagens de erro podem incluir contexto
 técnico, mas não devem registrar linhas completas de dados, secrets, tokens,
 credenciais, amostras amplas ou valores de colunas sensíveis.
@@ -325,7 +334,7 @@ não chama `Load.run`, portanto `_load` e `_certify` não executam nesse modo.
 
 `df.show()` automático só pode ocorrer quando `dry_run=True` e
 `dry_run_show_rows > 0`. Fora de `dry_run`, o framework não deve chamar
-`df.show()` automaticamente.
+`df.show()` automaticamente nem aceitar configuração com `dry_run_show_rows > 0`.
 
 `dry_run` não deve alterar a semântica principal das transformações. Ele pode
 reduzir volume, evitar escrita e permitir inspeção controlada, mas não deve
@@ -338,7 +347,26 @@ Mudanças futuras em `dry_run` devem deixar claro em qual ponto da execução o
 limite é aplicado. Alterar o ponto do limite pode mudar custo e semântica da
 verificação inicial, portanto exige justificativa arquitetural e testes.
 
-## 13. Critérios para Aceitar Novas Funcionalidades
+## 13. Uso Produtivo
+
+O núcleo pode ser usado em produção somente quando a pipeline concreta cumprir o
+checklist operacional em [docs/production_readiness.md](docs/production_readiness.md).
+Esse checklist cobre:
+
+- `Load` com staging, commit idempotente, retry seguro e certificação lendo o
+  destino real;
+- data quality produtivo separado de validação estrutural;
+- métricas explícitas, sem ações Spark automáticas no framework;
+- custo de `compute_summary=True`;
+- limites para checks SQL declarativos;
+- convenções mínimas para configuração de destino.
+
+Essas responsabilidades não devem virar lógica genérica pesada dentro do núcleo.
+Quando forem comuns o suficiente, devem ser adicionadas como documentação,
+testes de contrato ou helpers pequenos e opcionais, mantendo PySpark como única
+dependência de runtime.
+
+## 14. Critérios para Aceitar Novas Funcionalidades
 
 Uma nova funcionalidade só deve ser aceita se:
 
@@ -357,7 +385,7 @@ Uma nova funcionalidade só deve ser aceita se:
 - ter testes proporcionais ao risco e ao contrato alterado;
 - documentar qualquer ação Spark nova que possa gerar custo.
 
-## 14. Critérios para Rejeitar Mudanças
+## 15. Critérios para Rejeitar Mudanças
 
 Uma mudança deve ser rejeitada se:
 
@@ -376,7 +404,7 @@ Uma mudança deve ser rejeitada se:
   elementos forem relevantes para custo e semântica;
 - registra dados sensíveis ou executa inspeções amplas sem controle explícito.
 
-## 15. Precedência Arquitetural
+## 16. Precedência Arquitetural
 
 Quando houver conflito entre objetivos, a decisão deve seguir esta ordem:
 
@@ -392,7 +420,7 @@ Extensibilidade nunca deve justificar complexidade prematura. Uma solução meno
 genérica e mais explícita deve ser preferida quando ela preservar o contrato,
 reduzir custo de depuração e puder ser mantida por uma equipe júnior.
 
-## 16. Responsabilidade de Manutenção
+## 17. Responsabilidade de Manutenção
 
 Toda alteração no núcleo deve ser avaliada contra este manifesto antes de ser
 implementada.
