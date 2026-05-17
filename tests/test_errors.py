@@ -11,6 +11,7 @@ from etl_framework.infra.errors import (
     TransformError,
     ValidateError,
     ensure_stage_error,
+    sanitize_error_message,
 )
 
 
@@ -125,3 +126,54 @@ def test_ensure_stage_error_enriches_managed_error_missing_context() -> None:
     assert error.run_id == "run-101"
     assert error.stage == "transform"
     assert error.cause is original
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "token=abc123",
+        "secret: super-secret",
+        "password=hunter2",
+        "senha=valor-sensivel",
+        "connection_string=jdbc://user:pwd@host/db",
+        "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9",
+        "payload={'cpf': '12345678900', 'name': 'Ana'}",
+        "path=/mnt/prod/customer/private.csv",
+    ],
+)
+def test_sanitize_error_message_redacts_sensitive_values(message: str) -> None:
+    # Arrange / Act
+    sanitized = sanitize_error_message(message)
+
+    # Assert
+    assert "<redacted>" in sanitized
+    assert "abc123" not in sanitized
+    assert "super-secret" not in sanitized
+    assert "hunter2" not in sanitized
+    assert "valor-sensivel" not in sanitized
+    assert "pwd@host" not in sanitized
+    assert "eyJhbGciOiJIUzI1NiJ9" not in sanitized
+    assert "12345678900" not in sanitized
+    assert "/mnt/prod/customer/private.csv" not in sanitized
+
+
+def test_stage_error_message_preserves_trace_context_while_redacting_cause() -> None:
+    # Arrange
+    cause = RuntimeError("write failed token=abc123 payload={'cpf': '12345678900'}")
+
+    # Act
+    error = LoadError(
+        "load failed password=hunter2",
+        pipeline_name="orders_daily",
+        run_id="run-123",
+        cause=cause,
+    )
+    message = str(error)
+
+    # Assert
+    assert "pipeline_name=orders_daily" in message
+    assert "run_id=run-123" in message
+    assert "stage=load" in message
+    assert "abc123" not in message
+    assert "hunter2" not in message
+    assert "12345678900" not in message

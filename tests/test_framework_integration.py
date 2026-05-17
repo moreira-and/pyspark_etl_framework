@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import cast
-
 import pytest
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
@@ -13,7 +11,6 @@ from etl_framework.contracts.pipeline import Pipeline
 from etl_framework.contracts.transform import Transform
 from etl_framework.models.config import EtlRunConfig
 from etl_framework.models.context import EtlExecutionContext
-from etl_framework.utils.validate_struct import validate_struct
 
 pytestmark = pytest.mark.integration
 
@@ -92,9 +89,7 @@ class InlineTransform(Transform):
         context: EtlExecutionContext,
     ) -> DataFrame:
         self.events.append("validate")
-        target_struct = cast(StructType, config.target_struct)
-        validated_df, _ = validate_struct(df, target_struct)
-        return validated_df
+        return df
 
 
 class InlineLoad(Load):

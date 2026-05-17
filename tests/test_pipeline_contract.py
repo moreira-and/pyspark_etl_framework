@@ -5,6 +5,7 @@ from typing import Any
 
 import pytest
 from pyspark.sql import DataFrame, SparkSession
+from pyspark.sql.types import LongType, StringType, StructField, StructType
 
 from etl_framework.contracts import Extract, Load, Pipeline, Transform
 from etl_framework.infra.errors import (
@@ -16,6 +17,7 @@ from etl_framework.infra.errors import (
     TransformError,
     ValidateError,
 )
+from etl_framework.infra.logger import EVENT_SCHEMA_VERSION
 from etl_framework.models.config import EtlRunConfig
 from etl_framework.models.context import EtlExecutionContext
 
@@ -23,6 +25,22 @@ RUN_ID = "run-pipeline-contract"
 PIPELINE_NAME = "orders_pipeline"
 
 pytestmark = pytest.mark.integration
+
+SOURCE_STRUCT = StructType(
+    [
+        StructField("order_id", LongType(), nullable=False),
+        StructField("status", StringType(), nullable=False),
+        StructField("amount", LongType(), nullable=False),
+    ]
+)
+TARGET_STRUCT = StructType(
+    [
+        StructField("order_id", LongType(), nullable=False),
+        StructField("status", StringType(), nullable=False),
+        StructField("amount", LongType(), nullable=False),
+        StructField("amount_with_tax", LongType(), nullable=False),
+    ]
+)
 
 
 class CapturingHandler(logging.Handler):
@@ -41,6 +59,8 @@ def make_config(**overrides: object) -> EtlRunConfig:
         "target_table": "orders",
         "target_path": "/warehouse/gold/orders",
         "target_key": ("order_id",),
+        "source_struct": SOURCE_STRUCT,
+        "target_struct": TARGET_STRUCT,
     }
     values.update(overrides)
     return EtlRunConfig(**values)
@@ -246,6 +266,7 @@ def assert_payload_has_trace_fields(
     run_id: str,
 ) -> None:
     assert {
+        "event_schema_version",
         "event",
         "pipeline_name",
         "run_id",
@@ -255,6 +276,7 @@ def assert_payload_has_trace_fields(
         "stage",
         "status",
     }.issubset(payload)
+    assert payload["event_schema_version"] == EVENT_SCHEMA_VERSION
     assert payload["pipeline_name"] == pipeline_name
     assert payload["run_id"] == run_id
 
@@ -276,7 +298,13 @@ def test_run_executes_official_order(spark: SparkSession) -> None:
         "load",
         "certify",
     ]
-    assert result.columns == ["order_id", "status", "amount", "amount_with_tax"]
+    assert result.columns == [
+        "order_id",
+        "status",
+        "amount",
+        "amount_with_tax",
+        "is_valid",
+    ]
     assert load_step.certified_row_count == 3
 
 
@@ -313,6 +341,7 @@ def test_pipeline_run_emits_required_log_events_on_success(
         "certify_succeeded",
         "load_succeeded",
         "run_succeeded",
+        "execution_summary",
     ]
     for payload in payloads:
         assert_payload_has_trace_fields(
@@ -322,6 +351,7 @@ def test_pipeline_run_emits_required_log_events_on_success(
         )
     assert payloads[0]["stage"] == "run"
     assert payloads[0]["status"] == "started"
+    assert payloads[-1]["event"] == "execution_summary"
     assert payloads[-1]["stage"] == "run"
     assert payloads[-1]["status"] == "succeeded"
     assert payloads[-1]["mode"] == "prod"
@@ -374,12 +404,13 @@ def test_pipeline_run_emits_failure_log_event_with_context(
     assert failure_events["run_failed"]["error_type"] == "ValidateError"
 
 
-def test_pipeline_normal_mode_does_not_trigger_show_count_or_collect(
+def test_pipeline_normal_mode_does_not_trigger_show_or_collect(
     spark: SparkSession,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Arrange
-    # Protects against accidental Spark actions in production mode.
+    # Auto validate may run a small count to block invalid rows, but it must not
+    # expose rows or collect data automatically.
     action_calls: list[str] = []
 
     def fail_action(self: DataFrame, *args: object, **kwargs: object) -> object:
@@ -387,7 +418,6 @@ def test_pipeline_normal_mode_does_not_trigger_show_count_or_collect(
         raise AssertionError("Spark action was called automatically")
 
     monkeypatch.setattr(DataFrame, "show", fail_action)
-    monkeypatch.setattr(DataFrame, "count", fail_action)
     monkeypatch.setattr(DataFrame, "collect", fail_action)
 
     class NoActionExtract(Extract):
@@ -459,7 +489,13 @@ def test_pipeline_normal_mode_does_not_trigger_show_count_or_collect(
     result = pipeline.run()
 
     # Assert
-    assert result.columns == ["order_id", "status", "amount", "amount_with_tax"]
+    assert result.columns == [
+        "order_id",
+        "status",
+        "amount",
+        "amount_with_tax",
+        "is_valid",
+    ]
     assert action_calls == []
 
 
@@ -498,7 +534,7 @@ def test_pipeline_stages_share_same_spark_config_and_context_instances(
             context: EtlExecutionContext,
         ) -> DataFrame:
             seen.append(("transform", spark, config, context))
-            return df
+            return df.withColumn("amount_with_tax", df.amount + 1)
 
         def _validate(
             self,
@@ -683,18 +719,21 @@ def test_run_returns_transformed_dataframe_after_success(
             "status": "new",
             "amount": 10,
             "amount_with_tax": 11,
+            "is_valid": True,
         },
         {
             "order_id": 2,
             "status": "paid",
             "amount": 20,
             "amount_with_tax": 21,
+            "is_valid": True,
         },
         {
             "order_id": 3,
             "status": "shipped",
             "amount": 30,
             "amount_with_tax": 31,
+            "is_valid": True,
         },
     ]
     assert load_step.loaded_rows == rows

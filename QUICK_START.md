@@ -1,31 +1,20 @@
-# QUICK_START.md
+# Quick Start
 
-Primeiros passos para executar uma pipeline mínima com `spark-etl-framework`.
+Este exemplo mostra a menor forma util de montar uma pipeline com
+`etl_framework`.
 
-Use este arquivo para começar. Para uma leitura mais explicativa do exemplo,
-leia [docs/quick_start_explained.md](docs/quick_start_explained.md). Use
-[README.md](README.md) para visão geral e [MANIFEST.md](MANIFEST.md) para regras
-arquiteturais.
+Ele e didatico. O `Load` abaixo nao e um padrao produtivo.
 
-## 1. Instale o Ambiente
-
-Use Poetry `2.1.4`, a mesma versão usada pelo CI e pelo `poetry.lock`.
+## 1. Instalar
 
 ```bash
-poetry --version
 poetry install --with dev
 ```
 
-Verifique se o pacote importa:
+## 2. Criar Uma Pipeline Minima
 
-```bash
-poetry run pytest
-```
-
-## 2. Crie uma Pipeline Mínima
-
-Crie um arquivo local de teste, por exemplo `quick_start_pipeline.py`, fora do
-pacote `etl_framework`.
+Crie um arquivo local, por exemplo `quick_start_pipeline.py`, fora do pacote
+`etl_framework`.
 
 ```python
 from pyspark.sql import SparkSession
@@ -33,8 +22,14 @@ from pyspark.sql import functions as F
 from pyspark.sql.types import LongType, StringType, StructField, StructType
 
 from etl_framework import EtlRunConfig, Extract, Load, Pipeline, Transform
-from etl_framework.utils import validate_struct
 
+
+source_struct = StructType(
+    [
+        StructField("id", LongType(), nullable=False),
+        StructField("name", StringType(), nullable=True),
+    ]
+)
 
 target_struct = StructType(
     [
@@ -45,10 +40,15 @@ target_struct = StructType(
             metadata={
                 "checks": [
                     {
+                        "name": "id_required",
+                        "rule": "id IS NOT NULL",
+                        "severity": "error",
+                    },
+                    {
                         "name": "id_positive",
                         "rule": "id > 0",
                         "severity": "error",
-                    }
+                    },
                 ]
             },
         ),
@@ -61,20 +61,13 @@ class QuickExtract(Extract):
     def _extract(self, spark, config, context):
         return spark.createDataFrame(
             [(1, "ana"), (2, "bruno")],
-            schema=target_struct,
+            schema=source_struct,
         )
-
-    def _check(self, df, spark, config, context):
-        return df
 
 
 class QuickTransform(Transform):
     def _transform(self, df, spark, config, context):
-        return df.withColumn("name", F.upper("name"))
-
-    def _validate(self, df, spark, config, context):
-        validated_df, _ = validate_struct(df, config.target_struct)
-        return validated_df
+        return df.select("id", F.upper("name").alias("name"))
 
 
 class QuickLoad(Load):
@@ -93,16 +86,17 @@ config = EtlRunConfig(
     target_table="people",
     target_path="tmp/quick_start/people",
     target_key=("id",),
+    source_struct=source_struct,
     target_struct=target_struct,
     dry_run=True,
     dry_run_limit=10,
-    dry_run_show_rows=5,
+    dry_run_show_rows=0,
     write_mode="overwrite",
 )
 
 pipeline = Pipeline(
-    spark,
-    config,
+    spark=spark,
+    config=config,
     extract=QuickExtract(),
     transform=QuickTransform(),
     load=QuickLoad(),
@@ -111,86 +105,48 @@ pipeline = Pipeline(
 result_df = pipeline.run()
 ```
 
-## 3. Execute
+## 3. Executar
 
 ```bash
 poetry run python quick_start_pipeline.py
 ```
 
-Com `dry_run=True`, a pipeline:
+Com `dry_run=True`, o framework:
 
-- executa `extract`;
-- executa `check`;
-- limita o `DataFrame` com `dry_run_limit`;
-- executa `transform`;
-- executa `validate`;
-- pula a escrita;
-- mostra até `dry_run_show_rows` linhas, se esse valor for maior que zero.
+1. executa `QuickExtract._extract`;
+2. roda `auto_check` com `source_struct`;
+3. aplica `dry_run_limit`;
+4. executa `QuickTransform._transform`;
+5. roda `auto_validate` com `target_struct`;
+6. pula `_load` e `_certify`;
+7. retorna o `DataFrame` final.
 
-Para executar a escrita real, altere os dois campos abaixo. `dry_run_show_rows`
-deve voltar para `0`, porque o framework rejeita exibicao de linhas em modo
-normal para evitar vazamento acidental de dados.
+Para permitir escrita real, use:
 
 ```python
 dry_run=False
 dry_run_show_rows=0
 ```
 
-O `QuickLoad` acima é apenas didático. Para produção, implemente staging,
-commit idempotente e `_certify` lendo o destino real. Use o padrão em
-[docs/production_readiness.md](docs/production_readiness.md) antes de habilitar
-uma pipeline com milhões de linhas.
+Nao use `dry_run_show_rows > 0` em ambiente compartilhado. Esse modo chama
+`show(..., truncate=False)` e pode expor dados sensiveis.
 
-## Notebook Parser: from raw .ipynb to etl_framework pipeline
+## 4. O Que Trocar Primeiro
 
-Use this workflow when you need to convert an exploratory notebook into a
-structured ETL pipeline.
+Depois que o exemplo rodar:
 
-The parser works in three controlled artifacts:
+1. Troque `QuickExtract._extract` pela leitura real da origem.
+2. Mantenha `source_struct` alinhado ao schema lido.
+3. Coloque regras de negocio em `QuickTransform._transform`.
+4. Mantenha `target_struct` alinhado ao resultado transformado.
+5. Adicione checks SQL simples em `target_struct` quando quiser bloquear dados.
+6. Substitua `QuickLoad` por uma estrategia segura antes de qualquer producao.
 
-1. `raw_*.ipynb` - exact copy of the original notebook for historical tracking.
-2. `cln_*.ipynb` - cleaned notebook with sections, subtitles and
-   parser-friendly structure.
-3. `cfg_*.py` - final Python implementation compatible with `etl_framework`.
+`nullable=False` no `StructField` documenta intencao de schema, mas nao substitui
+um check SQL como `campo IS NOT NULL`.
 
-The standard artifact directory is:
+## 5. Proximas Leituras
 
-```text
-prompts/notebook_parser/notebook_parser_runs/<nome_semantico_notebook>/
-  raw_<nome_semantico_notebook>.ipynb
-  cln_<nome_semantico_notebook>.ipynb
-  cfg_<nome_semantico_notebook>.py
-```
-
-This workflow does not guarantee automatic conversion of any notebook.
-Ambiguous notebooks must be reviewed manually before becoming production
-pipelines.
-
-For the full workflow, see:
-
-`/prompts/notebook_parser/00_overview.md`
-
-## 4. O Que Alterar Primeiro
-
-Depois que o quick start rodar:
-
-1. Troque `QuickExtract._extract` pela leitura real da sua origem.
-2. Coloque checks preliminares em `QuickExtract._check`.
-3. Coloque regras de transformação em `QuickTransform._transform`.
-4. Use `validate_struct` ou validações simples em `QuickTransform._validate`.
-5. Ajuste `QuickLoad._load` para o destino real.
-6. Mantenha `dry_run=True` até validar o comportamento.
-7. Antes do go-live, aplique o checklist de produção, data quality e load seguro
-   em [docs/production_readiness.md](docs/production_readiness.md).
-
-## 5. Onde Ler Depois
-
-- [README.md](README.md): visão geral e estrutura do projeto.
-- [docs/quick_start_explained.md](docs/quick_start_explained.md): explicação
-  humana do exemplo.
-- [prompts/notebook_parser/00_overview.md](prompts/notebook_parser/00_overview.md):
-  workflow de parser de notebook para pipeline.
-- [MANIFEST.md](MANIFEST.md): regras arquiteturais e limites do framework.
-- `etl_framework/contracts/pipeline.py`: coordenação do fluxo.
-- `etl_framework/models/config.py`: campos de configuração.
-- `etl_framework/utils/validate_struct.py`: validação estrutural.
+- [docs/v0.1-contract.md](docs/v0.1-contract.md)
+- [docs/v0.1-known-limitations.md](docs/v0.1-known-limitations.md)
+- [docs/roadmap/v0.2.md](docs/roadmap/v0.2.md)

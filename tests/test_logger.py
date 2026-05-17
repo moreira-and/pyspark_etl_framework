@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 
-from etl_framework.infra.logger import get_logger, log_event
+from etl_framework.infra.logger import EVENT_SCHEMA_VERSION, get_logger, log_event
 from etl_framework.models.config import EtlRunConfig
 from etl_framework.models.context import EtlExecutionContext
 
@@ -63,6 +63,7 @@ def test_log_event_payload_contains_required_fields() -> None:
 
     assert isinstance(payload, dict)
     assert {
+        "event_schema_version",
         "event",
         "pipeline_name",
         "run_id",
@@ -77,6 +78,7 @@ def test_log_event_payload_contains_required_fields() -> None:
         "stage",
         "status",
     }.issubset(payload)
+    assert payload["event_schema_version"] == EVENT_SCHEMA_VERSION
     assert payload["event"] == "validate_succeeded"
     assert payload["pipeline_name"] == "orders_daily"
     assert payload["run_id"] == "run-123"
@@ -118,6 +120,7 @@ def test_log_event_marks_dry_run_mode() -> None:
     payload = handler.records[0].msg
 
     assert isinstance(payload, dict)
+    assert payload["event_schema_version"] == EVENT_SCHEMA_VERSION
     assert payload["mode"] == "dry_run"
     assert payload["stage"] == "run"
     assert payload["status"] == "started"
@@ -149,6 +152,7 @@ def test_log_event_includes_only_explicit_metrics() -> None:
     # Assert
     payload = handler.records[0].msg
     assert isinstance(payload, dict)
+    assert payload["event_schema_version"] == EVENT_SCHEMA_VERSION
     assert payload["metrics"] == {
         "rows_read": 10,
         "rows_valid": 9,
@@ -182,10 +186,47 @@ def test_log_event_sanitizes_metric_payload() -> None:
     # Assert
     payload = handler.records[0].msg
     assert isinstance(payload, dict)
+    assert payload["event_schema_version"] == EVENT_SCHEMA_VERSION
     assert payload["metrics"] == {
         "serializable": True,
         "non_scalar": "{'rows': 1}",
     }
+
+
+def test_log_event_redacts_sensitive_error_fields() -> None:
+    # Arrange
+    logger = logging.getLogger("tests.test_logger.error_redaction")
+    logger.handlers.clear()
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    handler = CapturingHandler()
+    logger.addHandler(handler)
+
+    # Act
+    log_event(
+        logger,
+        "load_failed",
+        _config(),
+        _context(),
+        stage="load",
+        status="failed",
+        error_message=(
+            "failed password=hunter2 token=abc123 "
+            "payload={'cpf': '12345678900'} path=/mnt/prod/private.csv"
+        ),
+    )
+
+    # Assert
+    payload = handler.records[0].msg
+    assert isinstance(payload, dict)
+    assert payload["event_schema_version"] == EVENT_SCHEMA_VERSION
+    assert payload["pipeline_name"] == "orders_daily"
+    assert payload["run_id"] == "run-123"
+    assert payload["stage"] == "load"
+    assert "hunter2" not in payload["error_message"]
+    assert "abc123" not in payload["error_message"]
+    assert "12345678900" not in payload["error_message"]
+    assert "/mnt/prod/private.csv" not in payload["error_message"]
 
 
 def test_get_logger_uses_single_plain_standard_library_handler() -> None:

@@ -14,6 +14,7 @@ from etl_framework.infra.errors import (
     ensure_stage_error,
 )
 from etl_framework.infra.logger import get_logger, log_event
+from etl_framework.infra.stage import stage
 from etl_framework.models.config import EtlRunConfig
 from etl_framework.models.context import EtlExecutionContext
 
@@ -79,6 +80,17 @@ class Pipeline:
                 error_type=type(exc).__name__,
                 error_message=str(exc),
             )
+            log_event(
+                self.logger,
+                "execution_summary",
+                self.config,
+                self.context,
+                stage="run",
+                status="failed",
+                elapsed_ms=elapsed_ms,
+                dry_run=self.config.dry_run,
+                error_type=type(exc).__name__,
+            )
             raise
 
         elapsed_ms = round((time.perf_counter() - started_at) * 1000, 2)
@@ -91,118 +103,52 @@ class Pipeline:
             status="succeeded",
             elapsed_ms=elapsed_ms,
         )
+        log_event(
+            self.logger,
+            "execution_summary",
+            self.config,
+            self.context,
+            stage="run",
+            status="succeeded",
+            elapsed_ms=elapsed_ms,
+            dry_run=self.config.dry_run,
+        )
         return df
 
     def extract(self) -> DataFrame:
         """Run the extract contract and apply dry-run limiting when enabled."""
-        started_at = time.perf_counter()
-        log_event(
-            self.logger,
-            "extract_started",
-            self.config,
-            self.context,
-            stage="extract",
-            status="started",
-        )
+        return self._run_extract()
 
-        try:
-            df = self.extract_step.run(
-                spark=self.spark,
-                config=self.config,
-                context=self.context,
-            )
-            df = self._apply_dry_run_limit(df)
-        except Exception as exc:
-            error = ensure_stage_error(
-                exc,
-                ExtractError,
-                pipeline_name=self.config.pipeline_name,
-                run_id=self.context.run_id,
-            )
-            elapsed_ms = round((time.perf_counter() - started_at) * 1000, 2)
-            log_event(
-                self.logger,
-                "extract_failed",
-                self.config,
-                self.context,
-                stage="extract",
-                status="failed",
-                elapsed_ms=elapsed_ms,
-                error_type=type(error).__name__,
-                error_message=str(error),
-            )
-            if error is exc:
-                raise
-            raise error from exc
-
-        elapsed_ms = round((time.perf_counter() - started_at) * 1000, 2)
-        log_event(
-            self.logger,
-            "extract_succeeded",
-            self.config,
-            self.context,
-            stage="extract",
-            status="succeeded",
-            elapsed_ms=elapsed_ms,
+    @stage("extract", ExtractError)
+    def _run_extract(self) -> DataFrame:
+        """Run extract/check and apply dry-run limiting when enabled."""
+        df = self.extract_step.run(
+            spark=self.spark,
+            config=self.config,
+            context=self.context,
         )
-        return df
+        return self._apply_dry_run_limit(df)
 
     def transform(self, df: DataFrame) -> DataFrame:
         """Run the transform contract for a checked DataFrame."""
-        started_at = time.perf_counter()
-        log_event(
-            self.logger,
-            "transform_started",
-            self.config,
-            self.context,
-            stage="transform",
-            status="started",
-        )
+        return self._run_transform(df)
 
-        try:
-            result = self.transform_step.run(
-                df=df,
-                spark=self.spark,
-                config=self.config,
-                context=self.context,
-            )
-        except Exception as exc:
-            error = ensure_stage_error(
-                exc,
-                TransformError,
-                pipeline_name=self.config.pipeline_name,
-                run_id=self.context.run_id,
-            )
-            elapsed_ms = round((time.perf_counter() - started_at) * 1000, 2)
-            log_event(
-                self.logger,
-                "transform_failed",
-                self.config,
-                self.context,
-                stage="transform",
-                status="failed",
-                elapsed_ms=elapsed_ms,
-                error_type=type(error).__name__,
-                error_message=str(error),
-            )
-            if error is exc:
-                raise
-            raise error from exc
-
-        elapsed_ms = round((time.perf_counter() - started_at) * 1000, 2)
-        log_event(
-            self.logger,
-            "transform_succeeded",
-            self.config,
-            self.context,
-            stage="transform",
-            status="succeeded",
-            elapsed_ms=elapsed_ms,
+    @stage("transform", TransformError)
+    def _run_transform(self, df: DataFrame) -> DataFrame:
+        """Run transform/validate for a checked DataFrame."""
+        return self.transform_step.run(
+            df=df,
+            spark=self.spark,
+            config=self.config,
+            context=self.context,
         )
-        return result
 
     def load(self, df: DataFrame) -> None:
         """Run the load contract unless dry-run mode skips the write."""
+        if not self.config.dry_run:
+            self._run_load(df)
+            return
+
         started_at = time.perf_counter()
         log_event(
             self.logger,
@@ -238,22 +184,16 @@ class Pipeline:
                 elapsed_ms = round((time.perf_counter() - started_at) * 1000, 2)
                 log_event(
                     self.logger,
-                    "load_succeeded",
+                    "dry_run_load_completed",
                     self.config,
                     self.context,
                     stage="load",
-                    status="succeeded",
+                    status="skipped",
                     elapsed_ms=elapsed_ms,
                     dry_run=True,
                 )
                 return
 
-            self.load_step.run(
-                df=df,
-                spark=self.spark,
-                config=self.config,
-                context=self.context,
-            )
         except Exception as exc:
             error = ensure_stage_error(
                 exc,
@@ -277,15 +217,14 @@ class Pipeline:
                 raise
             raise error from exc
 
-        elapsed_ms = round((time.perf_counter() - started_at) * 1000, 2)
-        log_event(
-            self.logger,
-            "load_succeeded",
-            self.config,
-            self.context,
-            stage="load",
-            status="succeeded",
-            elapsed_ms=elapsed_ms,
+    @stage("load", LoadError)
+    def _run_load(self, df: DataFrame) -> None:
+        """Run the real load path. Dry-run is handled by `load`."""
+        self.load_step.run(
+            df=df,
+            spark=self.spark,
+            config=self.config,
+            context=self.context,
         )
 
     def _apply_dry_run_limit(self, df: DataFrame) -> DataFrame:

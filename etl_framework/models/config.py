@@ -29,11 +29,12 @@ class EtlRunConfig:
     target_schema: str
     target_table: str
     target_path: str
-    target_key: tuple[str, ...]
+    target_key: tuple[str, ...] = ()
 
     dry_run: bool = False
     dry_run_limit: int = 100
     dry_run_show_rows: int = 0
+    strict_schema: bool = False
 
     source_struct: StructType | None = None
     target_struct: StructType | None = None
@@ -88,11 +89,14 @@ class EtlRunConfig:
         if not self.target_path.strip():
             raise ValueError("target_path cannot be empty")
 
-        if not self.target_key:
-            raise ValueError("target_key cannot be empty")
-
         if any(not isinstance(key, str) or not key.strip() for key in self.target_key):
             raise ValueError("target_key must contain only non-empty strings")
+
+        if not isinstance(self.dry_run, bool):
+            raise ValueError("dry_run must be a boolean")
+
+        if not isinstance(self.strict_schema, bool):
+            raise ValueError("strict_schema must be a boolean")
 
         if self.dry_run_limit <= 0:
             raise ValueError("dry_run_limit must be greater than zero")
@@ -140,6 +144,8 @@ class EtlRunConfig:
     def _validate_target_key_in_target_struct(self) -> None:
         """Ensure target keys refer to declared business output columns."""
         if self.target_struct is None:
+            return
+        if not self.target_key:
             return
 
         target_columns = {field.name for field in self.target_struct.fields}

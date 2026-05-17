@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from pyspark.sql import SparkSession
+from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.types import (
     BooleanType,
     IntegerType,
@@ -267,6 +267,56 @@ def test_compute_summary_is_opt_in(spark: SparkSession) -> None:
     assert computed_summary_df.select(
         "check", "severity", "failed_count", "passed"
     ).collect() == [("positive_amount", "error", 1, False)]
+
+
+def test_validate_struct_default_does_not_collect_when_summary_is_disabled(
+    spark: SparkSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange
+    collect_calls: list[str] = []
+
+    def fail_collect(self: DataFrame) -> object:
+        collect_calls.append(type(self).__name__)
+        raise AssertionError("collect should not run without compute_summary=True")
+
+    monkeypatch.setattr(DataFrame, "collect", fail_collect)
+    df = spark.createDataFrame(
+        [(1, 10)],
+        StructType(
+            [
+                StructField("id", IntegerType(), nullable=False),
+                StructField("amount", IntegerType(), nullable=False),
+            ]
+        ),
+    )
+    schema = StructType(
+        [
+            StructField("id", IntegerType(), nullable=False),
+            StructField(
+                "amount",
+                IntegerType(),
+                nullable=False,
+                metadata={
+                    "checks": [
+                        {
+                            "name": "positive_amount",
+                            "rule": "amount > 0",
+                            "severity": "error",
+                        }
+                    ]
+                },
+            ),
+        ]
+    )
+
+    # Act
+    validated_df, summary_df = validate_struct(df, schema)
+
+    # Assert
+    assert summary_df is None
+    assert "is_valid" in validated_df.columns
+    assert collect_calls == []
 
 
 def test_validate_struct_rejects_existing_is_valid_column(

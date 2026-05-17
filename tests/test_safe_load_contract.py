@@ -4,13 +4,22 @@ from typing import Any
 
 import pytest
 from pyspark.sql import DataFrame, SparkSession
+from pyspark.sql.types import IntegerType, StringType, StructField, StructType
 
 from etl_framework.contracts import Extract, Load, Pipeline, Transform
 from etl_framework.infra.errors import CertifyError, LoadError
 from etl_framework.models.config import EtlRunConfig
 from etl_framework.models.context import EtlExecutionContext
+from etl_framework.utils import assert_target_key_not_null, assert_target_key_unique
 
 pytestmark = pytest.mark.integration
+
+PIPELINE_STRUCT = StructType(
+    [
+        StructField("id", IntegerType(), nullable=False),
+        StructField("name", StringType(), nullable=True),
+    ]
+)
 
 
 class MemoryDestination:
@@ -103,6 +112,8 @@ class SafeMemoryLoad(Load):
         config: EtlRunConfig,
         context: EtlExecutionContext,
     ) -> None:
+        assert_target_key_not_null(df, config.target_key)
+        assert_target_key_unique(df, config.target_key)
         rows = [{**row.asDict(), "etl_run_id": context.run_id} for row in df.collect()]
         self.expected_keys = {
             tuple(row[field] for field in config.target_key) for row in rows
@@ -143,6 +154,8 @@ def config() -> EtlRunConfig:
         target_table="people",
         target_path="memory://silver/people",
         target_key=("id",),
+        source_struct=PIPELINE_STRUCT,
+        target_struct=PIPELINE_STRUCT,
         write_mode="overwrite",
     )
 
@@ -153,18 +166,64 @@ def run_pipeline(
     *,
     load: SafeMemoryLoad | None = None,
     context: EtlExecutionContext | None = None,
+    rows: list[tuple[int, str]] | None = None,
 ) -> SafeMemoryLoad:
     load_step = load or SafeMemoryLoad(destination)
     pipeline = Pipeline(
         spark=spark,
         config=config(),
         context=context or EtlExecutionContext(),
-        extract=InlineExtract([(1, "ana"), (2, "bruno")]),
+        extract=InlineExtract(rows or [(1, "ana"), (2, "bruno")]),
         transform=IdentityTransform(),
         load=load_step,
     )
     pipeline.run()
     return load_step
+
+
+class DirectAppendLoad(Load):
+    """Non-production example: direct append without staging or idempotency."""
+
+    def __init__(self, destination: MemoryDestination) -> None:
+        self.destination = destination
+
+    def _load(
+        self,
+        df: DataFrame,
+        spark: SparkSession,
+        config: EtlRunConfig,
+        context: EtlExecutionContext,
+    ) -> None:
+        rows = [{**row.asDict(), "etl_run_id": context.run_id} for row in df.collect()]
+        self.destination.committed_rows.extend(rows)
+
+    def _certify(
+        self,
+        df: DataFrame,
+        spark: SparkSession,
+        config: EtlRunConfig,
+        context: EtlExecutionContext,
+    ) -> None:
+        context.metrics["rows_written"] = len(self.destination.committed_rows)
+
+
+def test_safe_load_happy_path_commits_and_certifies_rows(
+    spark: SparkSession,
+) -> None:
+    # Arrange
+    destination = MemoryDestination()
+
+    # Act
+    load = run_pipeline(spark, destination, context=EtlExecutionContext(run_id="run-1"))
+
+    # Assert
+    committed = sorted(destination.read_committed(), key=lambda row: row["id"])
+    assert [(row["id"], row["name"], row["etl_run_id"]) for row in committed] == [
+        (1, "ana", "run-1"),
+        (2, "bruno", "run-1"),
+    ]
+    assert load.certified_from_destination is True
+    assert destination.staged_rows == {}
 
 
 def test_safe_load_failure_before_commit_leaves_no_partial_rows(
@@ -178,6 +237,23 @@ def test_safe_load_failure_before_commit_leaves_no_partial_rows(
     # Act / Assert
     with pytest.raises(LoadError):
         run_pipeline(spark, destination, load=load)
+
+    assert destination.read_committed() == [
+        {"id": 99, "name": "existing", "etl_run_id": "old"}
+    ]
+    assert destination.staged_rows == {}
+
+
+def test_safe_load_rejects_duplicate_keys_before_commit(
+    spark: SparkSession,
+) -> None:
+    # Arrange
+    destination = MemoryDestination()
+    destination.committed_rows = [{"id": 99, "name": "existing", "etl_run_id": "old"}]
+
+    # Act / Assert
+    with pytest.raises(LoadError, match="Duplicate target key"):
+        run_pipeline(spark, destination, rows=[(1, "ana"), (1, "ana duplicate")])
 
     assert destination.read_committed() == [
         {"id": 99, "name": "existing", "etl_run_id": "old"}
@@ -234,3 +310,32 @@ def test_safe_load_certification_reads_destination(
     with pytest.raises(CertifyError):
         run_pipeline(spark, destination, load=load)
     assert load.certified_from_destination is True
+
+
+def test_direct_append_load_is_documented_as_non_productive_on_rerun(
+    spark: SparkSession,
+) -> None:
+    # Arrange
+    destination = MemoryDestination()
+
+    # Act
+    run_pipeline(
+        spark,
+        destination,
+        load=DirectAppendLoad(destination),  # type: ignore[arg-type]
+        context=EtlExecutionContext(run_id="run-1"),
+    )
+    run_pipeline(
+        spark,
+        destination,
+        load=DirectAppendLoad(destination),  # type: ignore[arg-type]
+        context=EtlExecutionContext(run_id="run-2"),
+    )
+
+    # Assert
+    # This proves why direct append is not the production contract: rerun
+    # duplicates the same business keys instead of replacing the loaded scope.
+    committed = sorted(destination.read_committed(), key=lambda row: row["etl_run_id"])
+    assert len(committed) == 4
+    assert [row["id"] for row in committed].count(1) == 2
+    assert [row["id"] for row in committed].count(2) == 2

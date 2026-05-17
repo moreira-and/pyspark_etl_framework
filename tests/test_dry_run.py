@@ -4,6 +4,7 @@ from typing import Any
 
 import pytest
 from pyspark.sql import DataFrame, SparkSession
+from pyspark.sql.types import IntegerType, StringType, StructField, StructType
 
 from etl_framework.contracts.extract import Extract
 from etl_framework.contracts.load import Load
@@ -13,6 +14,14 @@ from etl_framework.models.config import EtlRunConfig
 from etl_framework.models.context import EtlExecutionContext
 
 pytestmark = pytest.mark.integration
+
+SOURCE_STRUCT = StructType(
+    [
+        StructField("id", IntegerType(), nullable=False),
+        StructField("name", StringType(), nullable=False),
+    ]
+)
+TARGET_STRUCT = SOURCE_STRUCT
 
 
 class CountingExtract(Extract):
@@ -107,6 +116,8 @@ def _config(**overrides: Any) -> EtlRunConfig:
         "target_table": "people",
         "target_path": "memory://people",
         "target_key": ("id",),
+        "source_struct": SOURCE_STRUCT,
+        "target_struct": TARGET_STRUCT,
     }
     values.update(overrides)
     return EtlRunConfig(**values)

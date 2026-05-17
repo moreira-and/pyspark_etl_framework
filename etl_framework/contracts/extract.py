@@ -1,23 +1,26 @@
 from __future__ import annotations
 
-import time
 from abc import ABC, abstractmethod
 
 from pyspark.sql import DataFrame, SparkSession
 
 from etl_framework.contracts._type_checks import require_dataframe
 from etl_framework.infra.errors import CheckError, ExtractError, ensure_stage_error
-from etl_framework.infra.logger import get_logger, log_event
+from etl_framework.infra.stage import stage
 from etl_framework.models.config import EtlRunConfig
 from etl_framework.models.context import EtlExecutionContext
+from etl_framework.utils.auto_quality import auto_check_source
 
 
 class Extract(ABC):
-    """Contract for the extract and initial check stages.
+    """Contract for source-specific extraction plus automatic source check.
 
     The framework owns the execution order and error/logging standardization.
-    Concrete pipelines own only the source-specific extraction logic and the
-    initial structural checks implemented in the protected methods.
+    Concrete pipelines own the source-specific extraction logic. The framework
+    automatically checks the extracted DataFrame against `config.source_struct`
+    before downstream stages run. Pipelines may still override `_check` for
+    small legacy or pipeline-specific checks, but basic structural validation no
+    longer belongs in junior-owned pipeline code.
     """
 
     def run(
@@ -26,9 +29,7 @@ class Extract(ABC):
         config: EtlRunConfig,
         context: EtlExecutionContext,
     ) -> DataFrame:
-        """Execute extract, then check, returning the checked DataFrame."""
-        logger = get_logger(config.pipeline_name)
-
+        """Execute extract, then automatic check, returning the checked DataFrame."""
         try:
             df = self._extract(spark, config, context)
             df = require_dataframe(df, stage="extract")
@@ -43,52 +44,34 @@ class Extract(ABC):
                 raise
             raise error from exc
 
-        started_at = time.perf_counter()
-        log_event(
-            logger,
-            "check_started",
-            config,
-            context,
-            stage="check",
-            status="started",
+        return self._run_check(
+            df=df,
+            spark=spark,
+            config=config,
+            context=context,
         )
-        try:
-            checked_df = self._check(df, spark, config, context)
-            checked_df = require_dataframe(checked_df, stage="check")
-        except Exception as exc:
-            error = ensure_stage_error(
-                exc,
-                CheckError,
-                pipeline_name=config.pipeline_name,
-                run_id=context.run_id,
-            )
-            elapsed_ms = round((time.perf_counter() - started_at) * 1000, 2)
-            log_event(
-                logger,
-                "check_failed",
-                config,
-                context,
-                stage="check",
-                status="failed",
-                elapsed_ms=elapsed_ms,
-                error_type=type(error).__name__,
-                error_message=str(error),
-            )
-            if error is exc:
-                raise
-            raise error from exc
 
-        elapsed_ms = round((time.perf_counter() - started_at) * 1000, 2)
-        log_event(
-            logger,
-            "check_succeeded",
-            config,
-            context,
-            stage="check",
-            status="succeeded",
-            elapsed_ms=elapsed_ms,
+    @stage("check", CheckError)
+    def _run_check(
+        self,
+        *,
+        df: DataFrame,
+        spark: SparkSession,
+        config: EtlRunConfig,
+        context: EtlExecutionContext,
+    ) -> DataFrame:
+        """Execute automatic source check and optional pipeline-specific hook."""
+        checked_df = self._auto_check(df, config)
+        checked_df = self._check(checked_df, spark, config, context)
+        return require_dataframe(checked_df, stage="check")
+
+    def _auto_check(self, df: DataFrame, config: EtlRunConfig) -> DataFrame:
+        """Validate extracted data against the declared source structure."""
+        return auto_check_source(
+            df,
+            config.source_struct,
+            strict=config.strict_schema,
         )
-        return checked_df
 
     @abstractmethod
     def _extract(
@@ -100,7 +83,6 @@ class Extract(ABC):
         """Implement source-specific extraction in a concrete pipeline."""
         raise NotImplementedError
 
-    @abstractmethod
     def _check(
         self,
         df: DataFrame,
@@ -108,5 +90,5 @@ class Extract(ABC):
         config: EtlRunConfig,
         context: EtlExecutionContext,
     ) -> DataFrame:
-        """Implement initial checks that run before transformation."""
-        raise NotImplementedError
+        """Optional legacy hook for extra checks after automatic source check."""
+        return df

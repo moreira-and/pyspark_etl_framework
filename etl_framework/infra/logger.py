@@ -4,10 +4,13 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
+from etl_framework.infra.errors import sanitize_error_message
 from etl_framework.models.config import EtlRunConfig
 from etl_framework.models.context import EtlExecutionContext
 
 _METRIC_SCALAR_TYPES = (str, int, float, bool, type(None))
+_SENSITIVE_EXTRA_FIELDS = {"error", "error_message", "exception", "cause_message"}
+EVENT_SCHEMA_VERSION = "1.0"
 
 
 def get_logger(name: str) -> logging.Logger:
@@ -49,6 +52,7 @@ def log_event(
         metrics.update(_serializable_metrics(extra_payload.pop("metrics")))
 
     payload = {
+        "event_schema_version": EVENT_SCHEMA_VERSION,
         "event": event,
         "pipeline_name": config.pipeline_name,
         "run_id": context.run_id,
@@ -64,7 +68,7 @@ def log_event(
     }
     if metrics:
         payload["metrics"] = metrics
-    logger.info(payload)
+    logger.info(_sanitize_log_payload(payload))
 
 
 def _resolve_mode(config: EtlRunConfig) -> str:
@@ -85,3 +89,12 @@ def _serializable_metrics(metrics: object) -> dict[str, object]:
             value if isinstance(value, _METRIC_SCALAR_TYPES) else str(value)
         )
     return serializable
+
+
+def _sanitize_log_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Sanitize known error fields without hiding normal operational metadata."""
+    sanitized = dict(payload)
+    for field in _SENSITIVE_EXTRA_FIELDS:
+        if field in sanitized and sanitized[field] is not None:
+            sanitized[field] = sanitize_error_message(sanitized[field])
+    return sanitized

@@ -1,134 +1,104 @@
-# spark-etl-framework
+# etl_framework
 
-Framework interno para padronizar pipelines ETL em PySpark com um contrato
-linear, explícito e fácil de depurar.
+`etl_framework` e um framework interno simples para padronizar pipelines ETL em
+PySpark.
 
-## Mapa da Documentação
+Ele existe para reduzir carga cognitiva de desenvolvedores junior, tornar o
+fluxo ETL previsivel e automatizar controles estruturais basicos antes que dados
+cheguem ao destino.
 
-- [README.md](README.md): visão geral, estrutura e onboarding do projeto.
-- [QUICK_START.md](QUICK_START.md): primeiros passos para executar uma pipeline
-  mínima.
-- [MANIFEST.md](MANIFEST.md): contrato arquitetural, regras de evolução e
-  governança técnica.
-- [docs/README.md](docs/README.md): índice dos documentos operacionais e de
-  auditoria.
-- [docs/production_readiness.md](docs/production_readiness.md): checklist de
-  produção, load seguro, data quality, observabilidade e CI.
+O pacote publicado pelo projeto e `etl_framework`. O nome do repositorio e
+`spark-etl-framework`.
 
-## Visão Geral
+## Escopo Real Da v0.1
 
-O pacote principal é `etl_framework`.
-
-O framework não implementa leitura, transformação ou escrita específicas de
-negócio. Ele fornece contratos para que cada pipeline implemente essas partes e
-mantém o fluxo principal previsível.
-
-O núcleo cuida de:
-
-- ordem de execução;
-- configuração da execução;
-- contexto com `run_id`;
-- logging técnico;
-- erros gerenciados por etapa;
-- validação estrutural opcional;
-- `dry_run` para reduzir risco durante desenvolvimento.
-
-## Contrato da Pipeline
-
-Fluxo oficial:
+A v0.1 organiza o fluxo:
 
 ```text
 extract -> check -> transform -> validate -> load -> certify
 ```
 
-| Etapa | Método | Responsabilidade |
+O foco real da v0.1 esta em:
+
+- padronizar a ordem de execucao;
+- injetar `SparkSession`, `EtlRunConfig` e `EtlExecutionContext`;
+- executar `auto_check` da origem com `source_struct`;
+- executar `auto_validate` do resultado com `target_struct`;
+- registrar logs tecnicos por etapa;
+- propagar erros gerenciados com `pipeline_name`, `run_id` e etapa;
+- oferecer `dry_run` para pular a escrita durante desenvolvimento.
+
+A v0.1 ainda nao entrega load seguro, idempotencia, rollback, transacao,
+quarantine persistente ou certificacao real do destino. Esses pontos ficam para
+pipelines concretas ou para a v0.2.
+
+## O Que O Junior Implementa
+
+Em uma pipeline comum, o desenvolvedor implementa:
+
+| Classe | Metodo principal | Responsabilidade |
 | --- | --- | --- |
-| `extract` | `Extract._extract` | Ler dados de origem. |
-| `check` | `Extract._check` | Verificar dados antes da transformação. |
-| `transform` | `Transform._transform` | Aplicar transformação. |
-| `validate` | `Transform._validate` | Validar saída transformada. |
-| `load` | `Load._load` | Persistir resultado. |
-| `certify` | `Load._certify` | Registrar evidência simples da carga. |
+| `Extract` | `_extract` | Ler a origem e retornar um `DataFrame`. |
+| `Transform` | `_transform` | Aplicar transformacoes de negocio. |
+| `Load` | `_load` | Escrever no destino escolhido pela pipeline. |
+| `Load` | `_certify` | Registrar uma evidencia simples apos a carga. |
 
-`Pipeline.run()` coordena a sequência. As implementações concretas entram por
-injeção de `Extract`, `Transform` e `Load`.
+Hooks opcionais existem para casos especificos:
 
-## Estrutura do Projeto
+- `Extract._check`
+- `Transform._validate`
 
-```text
-spark-etl-framework/
-├── .github/workflows/ci.yml
-├── docs/
-│   ├── README.md
-│   └── production_readiness.md
-├── etl_framework/
-│   ├── contracts/      # Pipeline, Extract, Transform, Load e type checks
-│   ├── infra/          # logging e erros gerenciados
-│   ├── models/         # EtlRunConfig e EtlExecutionContext
-│   └── utils/          # validate_struct e schema metadata
-├── tests/
-├── MANIFEST.md
-├── QUICK_START.md
-├── README.md
-├── pyproject.toml
-└── poetry.lock
-```
+Na v0.1, o junior nao precisa chamar manualmente `validate_schema` para o schema
+da origem nem `validate_struct` para o schema do destino. O framework faz isso
+automaticamente a partir de `source_struct` e `target_struct`.
 
-## Componentes Principais
+## O Que O Framework Automatiza
 
-- `Pipeline`: coordena a execução.
-- `Extract`: contrato de extração e checks iniciais.
-- `Transform`: contrato de transformação e validação final.
-- `Load`: contrato de carga e certificação.
-- `EtlRunConfig`: configuração imutável de uma execução.
-- `EtlExecutionContext`: contexto técnico com `run_id` e `started_at`.
-- `validate_struct`: valida `DataFrame` contra `StructType`.
-- `EtlError` e erros por etapa: padronizam falhas rastreáveis.
+`Extract.run()` executa `_extract`, valida que o retorno e um `DataFrame` e roda
+o check estrutural automatico com `config.source_struct`.
 
-## Instalação
+`Transform.run()` executa `_transform`, valida que o retorno e um `DataFrame` e
+roda o validate estrutural automatico com `config.target_struct`.
 
-Pré-requisitos:
+`auto_validate` adiciona a coluna tecnica `is_valid` e bloqueia registros
+invalidos antes de `load`. Regras declarativas podem ser definidas em
+`StructField.metadata["checks"]` usando expressoes SQL Spark simples.
+
+## O Que A v0.1 Nao Garante
+
+A v0.1 nao deve ser vendida como plataforma completa de DataOps.
+
+Ela nao garante:
+
+- escrita idempotente;
+- staging por `run_id`;
+- commit atomico;
+- rollback;
+- retry seguro;
+- protecao completa contra carga duplicada ou parcial;
+- certificacao lendo o destino real;
+- engine completa de qualidade de dados;
+- observabilidade externa;
+- compatibilidade produtiva irrestrita para milhoes de linhas.
+
+Essas limitacoes estao detalhadas em
+[docs/v0.1-known-limitations.md](docs/v0.1-known-limitations.md).
+
+## Instalar E Testar
+
+Pre-requisitos:
 
 - Python `>=3.11,<3.14`
 - Poetry `2.1.4`
 - PySpark `>=3.5,<4.0`
 
-Instalação local:
+Instalacao local:
 
 ```bash
 poetry install --with dev
 ```
 
-O CI usa Poetry `2.1.4`, a mesma versão que gerou `poetry.lock`.
-
-Dependência externa de runtime declarada:
-
-- `pyspark`
-
-Dependências de desenvolvimento:
-
-- `pytest`
-- `pytest-cov`
-- `black`
-- `isort`
-- `commitizen`
-- `pre-commit`
-
-## Primeiros Passos
-
-Siga [QUICK_START.md](QUICK_START.md) para criar e executar uma pipeline mínima.
-
-O quick start cobre:
-
-- criação de `EtlRunConfig`;
-- implementação mínima de `Extract`, `Transform` e `Load`;
-- execução com `Pipeline.run()`;
-- uso de `dry_run`;
-- validação estrutural com `validate_struct`.
-
-## Desenvolvimento
-
-Comandos oficiais de validação, alinhados ao CI:
+Comandos oficiais:
 
 ```bash
 poetry run python -m black --check --diff etl_framework tests
@@ -136,34 +106,26 @@ poetry run isort --check-only etl_framework tests
 poetry run pytest --cov=etl_framework --cov-report=term-missing
 ```
 
-Configurações relevantes estão em `pyproject.toml`:
+Detalhes de teste ficam em
+[docs/development/testing.md](docs/development/testing.md).
 
-- `black`: line length `88`;
-- `isort`: profile `black`;
-- `pytest`: testes em `tests`;
-- `coverage`: fonte em `etl_framework`, com mínimo obrigatório configurado.
+## Documentacao Ativa
 
-## Limitações Atuais
+- [QUICK_START.md](QUICK_START.md): exemplo minimo executavel.
+- [docs/v0.1-contract.md](docs/v0.1-contract.md): contrato real da v0.1.
+- [docs/v0.1-known-limitations.md](docs/v0.1-known-limitations.md): limites
+  conhecidos e como interpreta-los.
+- [docs/roadmap/v0.2.md](docs/roadmap/v0.2.md): itens futuros, separados da
+  realidade atual.
+- [docs/adr/0001-defer-safe-load-to-v0.2.md](docs/adr/0001-defer-safe-load-to-v0.2.md):
+  decisao de adiar load seguro.
+- [docs/development/testing.md](docs/development/testing.md): comandos de
+  validacao local e CI.
+- [CHANGELOG.md](CHANGELOG.md): historico de mudancas.
 
-- Não há CLI própria.
-- Não há diretório de exemplos dedicado.
-- A pasta `docs` contém o guia operacional de prontidão produtiva.
-- A suíte de testes atual valida contratos do framework com Spark local.
-- `dry_run` limita dados após `_extract` e `_check`, não antes da leitura.
-- Uso produtivo exige seguir o checklist em
-  [docs/production_readiness.md](docs/production_readiness.md), especialmente
-  para idempotência de `Load`, data quality e métricas explícitas.
+Documentos antigos, prompts e auditorias foram arquivados em `docs/archive/`.
+Eles nao fazem parte da documentacao ativa da v0.1.
 
-## Referência Arquitetural
+## Licenca
 
-Use [MANIFEST.md](MANIFEST.md) para decisões sobre:
-
-- escopo permitido e proibido;
-- dependências aceitas;
-- critérios de evolução;
-- regras de simplicidade;
-- governança técnica do núcleo.
-
-## Licença
-
-Este projeto usa licença MIT. Consulte [LICENSE](LICENSE).
+MIT. Consulte [LICENSE](LICENSE).

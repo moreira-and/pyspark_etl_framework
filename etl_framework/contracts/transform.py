@@ -1,23 +1,26 @@
 from __future__ import annotations
 
-import time
 from abc import ABC, abstractmethod
 
 from pyspark.sql import DataFrame, SparkSession
 
 from etl_framework.contracts._type_checks import require_dataframe
 from etl_framework.infra.errors import TransformError, ValidateError, ensure_stage_error
-from etl_framework.infra.logger import get_logger, log_event
+from etl_framework.infra.stage import stage
 from etl_framework.models.config import EtlRunConfig
 from etl_framework.models.context import EtlExecutionContext
+from etl_framework.utils.auto_quality import auto_validate_target
 
 
 class Transform(ABC):
-    """Contract for the transform and final validation stages.
+    """Contract for business transformation plus automatic target validation.
 
     The framework owns sequencing, logging and error wrapping. Concrete
-    pipelines own the business transformation and the validation rules applied
-    to the transformed DataFrame.
+    pipelines own the business transformation. The framework automatically
+    validates transformed data against `config.target_struct` before load.
+    Pipelines may still override `_validate` for small legacy or
+    pipeline-specific checks, but basic structural validation no longer belongs
+    in junior-owned pipeline code.
     """
 
     def run(
@@ -27,9 +30,7 @@ class Transform(ABC):
         config: EtlRunConfig,
         context: EtlExecutionContext,
     ) -> DataFrame:
-        """Execute transform, then validate, returning the validated DataFrame."""
-        logger = get_logger(config.pipeline_name)
-
+        """Execute transform, then automatic validate, returning a valid DataFrame."""
         try:
             df = self._transform(df, spark, config, context)
             df = require_dataframe(df, stage="transform")
@@ -44,52 +45,34 @@ class Transform(ABC):
                 raise
             raise error from exc
 
-        started_at = time.perf_counter()
-        log_event(
-            logger,
-            "validate_started",
-            config,
-            context,
-            stage="validate",
-            status="started",
+        return self._run_validate(
+            df=df,
+            spark=spark,
+            config=config,
+            context=context,
         )
-        try:
-            validated_df = self._validate(df, spark, config, context)
-            validated_df = require_dataframe(validated_df, stage="validate")
-        except Exception as exc:
-            error = ensure_stage_error(
-                exc,
-                ValidateError,
-                pipeline_name=config.pipeline_name,
-                run_id=context.run_id,
-            )
-            elapsed_ms = round((time.perf_counter() - started_at) * 1000, 2)
-            log_event(
-                logger,
-                "validate_failed",
-                config,
-                context,
-                stage="validate",
-                status="failed",
-                elapsed_ms=elapsed_ms,
-                error_type=type(error).__name__,
-                error_message=str(error),
-            )
-            if error is exc:
-                raise
-            raise error from exc
 
-        elapsed_ms = round((time.perf_counter() - started_at) * 1000, 2)
-        log_event(
-            logger,
-            "validate_succeeded",
-            config,
-            context,
-            stage="validate",
-            status="succeeded",
-            elapsed_ms=elapsed_ms,
+    @stage("validate", ValidateError)
+    def _run_validate(
+        self,
+        *,
+        df: DataFrame,
+        spark: SparkSession,
+        config: EtlRunConfig,
+        context: EtlExecutionContext,
+    ) -> DataFrame:
+        """Execute automatic target validation and optional pipeline hook."""
+        validated_df = self._auto_validate(df, config)
+        validated_df = self._validate(validated_df, spark, config, context)
+        return require_dataframe(validated_df, stage="validate")
+
+    def _auto_validate(self, df: DataFrame, config: EtlRunConfig) -> DataFrame:
+        """Validate transformed data against the declared target structure."""
+        return auto_validate_target(
+            df,
+            config.target_struct,
+            strict=config.strict_schema,
         )
-        return validated_df
 
     @abstractmethod
     def _transform(
@@ -102,7 +85,6 @@ class Transform(ABC):
         """Implement pipeline-specific business transformation."""
         raise NotImplementedError
 
-    @abstractmethod
     def _validate(
         self,
         df: DataFrame,
@@ -110,5 +92,5 @@ class Transform(ABC):
         config: EtlRunConfig,
         context: EtlExecutionContext,
     ) -> DataFrame:
-        """Implement final validation before the load stage."""
-        raise NotImplementedError
+        """Optional legacy hook for extra checks after automatic target validation."""
+        return df

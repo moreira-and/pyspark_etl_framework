@@ -35,7 +35,7 @@ def validate_struct(
     if df is None or schema is None:
         raise ValueError("DataFrame and schema cannot be None")
 
-    _validate_schema_match(df, schema, strict=strict)
+    validate_schema(df, schema, strict=strict)
 
     checks = _extract_all_checks(schema)
     logger.info("Validating with %s checks", len(checks))
@@ -49,6 +49,23 @@ def validate_struct(
         summary_df = _build_checks_summary(validated_df, checks)
 
     return validated_df, summary_df
+
+
+def validate_schema(
+    df: DataFrame,
+    schema: StructType | None,
+    strict: bool = False,
+) -> DataFrame:
+    """Validate only names and data types, returning the original DataFrame.
+
+    Use this in `_check` for `source_struct` validation. It does not create the
+    `is_valid` column and does not execute Spark actions.
+    """
+    if df is None or schema is None:
+        raise ValueError("DataFrame and schema cannot be None")
+
+    _validate_schema_match(df, schema, strict=strict)
+    return df
 
 
 def _validate_schema_match(

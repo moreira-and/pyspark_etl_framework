@@ -21,3 +21,10 @@ class EtlExecutionContext:
     run_id: str = field(default_factory=lambda: str(uuid4()))
     started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     metrics: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Validate minimum traceability fields for one execution."""
+        if not isinstance(self.run_id, str) or not self.run_id.strip():
+            raise ValueError("run_id must be a non-empty string")
+        if not isinstance(self.metrics, dict):
+            raise ValueError("metrics must be a dict")

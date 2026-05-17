@@ -42,7 +42,6 @@ def test_config_rejects_empty_required_text_fields(
 @pytest.mark.parametrize(
     "invalid_target_key",
     [
-        pytest.param((), id="empty"),
         pytest.param("order_id", id="string-is-not-sequence"),
         pytest.param(("order_id", ""), id="empty-item"),
         pytest.param(("order_id", "   "), id="blank-item"),
@@ -102,6 +101,14 @@ def test_config_normalizes_target_key_and_exposes_full_table_name() -> None:
     # Assert
     assert config.target_key == ("order_id", "line_id")
     assert config.full_target_table_name == "gold.orders"
+
+
+def test_config_allows_empty_target_key_for_v01_auto_validation() -> None:
+    # Arrange / Act
+    config = make_config(target_key=())
+
+    # Assert
+    assert config.target_key == ()
 
 
 def test_config_rejects_target_key_not_present_in_target_struct() -> None:
