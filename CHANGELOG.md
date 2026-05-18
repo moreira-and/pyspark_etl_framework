@@ -14,10 +14,12 @@ O projeto usa SemVer pragmatico:
 
 - Reorganiza a documentacao ativa para deixar claro que a v0.1 e um framework
   interno simples, nao uma plataforma completa de DataOps.
-- Move prompts, auditorias e documentos legados para `docs/archive/`.
+- Declara `prompts/_v0.1/` como insumo interno de auditoria, ancorado em
+  `promessas.md`.
 - Adiciona contrato explicito da v0.1 em `docs/v0.1-contract.md`.
 - Move limitacoes conhecidas para `docs/v0.1-known-limitations.md`.
 - Adiciona guia enxuto de testes em `docs/development/testing.md`.
+- Adiciona checklist de readiness para `Load` concreto e modelo de custo Spark.
 - Documenta que `auto_validate` executa uma acao Spark pequena para bloquear
   invalidos e que `Load._load` recebe a coluna tecnica `is_valid`.
 
@@ -27,6 +29,8 @@ O projeto usa SemVer pragmatico:
   nao sejam registradas como falhas de escrita.
 - Padroniza `Extract`, `Transform` e `Load` como Template Method, com
   `_run_*` controlado pelo framework e hooks opcionais `_custom_*`.
+- Marca exemplos de `SafeLoad`/v0.2 como `v02_example`, fora do gate
+  contratual da v0.1.
 
 ## [0.1.0] - Base interna
 

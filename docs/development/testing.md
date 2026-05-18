@@ -13,10 +13,10 @@ poetry --version
 poetry install --with dev
 ```
 
-Runtime declarado:
+Runtime oficial validado para a v0.1 controlada:
 
-- Python `>=3.11,<3.14`
-- PySpark `>=3.5,<4.0`
+- Python `3.11`
+- PySpark `3.5.x`
 
 O CI atual roda Python `3.11` e Java `17`.
 
@@ -44,6 +44,8 @@ poetry run pytest --cov=etl_framework --cov-report=term-missing
 - validacao de metadata de checks;
 - logs e erros sem payload sensivel obvio;
 - helpers opcionais em `etl_framework.utils`.
+- separacao entre o gate contratual v0.1 e exemplos marcados como
+  `v02_example`.
 
 ## O Que Os Testes Do Framework Nao Provam
 
@@ -62,6 +64,25 @@ Cada pipeline concreta ainda precisa testar:
 - volume, freshness e reconciliacao quando aplicavel;
 - custo de checks e metricas em dados grandes.
 
+## Gate Contratual v0.1
+
+O gate contratual da v0.1 e:
+
+```bash
+poetry run pytest --cov=etl_framework --cov-report=term-missing -m "not v02_example"
+```
+
+Esse comando valida o framework prometido na v0.1. Exemplos marcados com
+`v02_example` continuam executaveis, mas demonstram comportamento de pipeline
+concreta ou roadmap v0.2; eles nao tornam `SafeLoad`, rollback, retry seguro ou
+idempotencia automatica parte do contrato v0.1.
+
+Para executar tambem os exemplos futuros:
+
+```bash
+poetry run pytest -m "v02_example"
+```
+
 ## Marcadores
 
 Testes que exercitam uma pipeline Spark local completa devem usar o marcador:
@@ -72,3 +93,16 @@ Testes que exercitam uma pipeline Spark local completa devem usar o marcador:
 
 O marcador existe para deixar claro quando um teste depende de Spark local e
 pode ser mais lento que testes unitarios puros.
+
+Testes que demonstram comportamento de pipeline concreta ou roadmap v0.2 devem
+usar tambem:
+
+```python
+pytestmark = [pytest.mark.integration, pytest.mark.v02_example]
+```
+
+## Custo Spark E Benchmark
+
+O modelo de custo dos helpers e o benchmark minimo para pipelines concretas
+ficam em
+[docs/operation/spark-cost-and-benchmark.md](../operation/spark-cost-and-benchmark.md).

@@ -138,6 +138,31 @@ def test_auto_check_source_utility_is_reusable(spark: SparkSession) -> None:
     assert checked_df is df
 
 
+def test_auto_check_source_does_not_run_spark_actions(
+    spark: SparkSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange
+    action_calls: list[str] = []
+    df = spark.createDataFrame([(1, "ana")], SOURCE_STRUCT)
+
+    def fail_action(self: DataFrame, *args: object, **kwargs: object) -> object:
+        action_calls.append(type(self).__name__)
+        raise AssertionError("auto_check must not run Spark actions")
+
+    monkeypatch.setattr(DataFrame, "count", fail_action)
+    monkeypatch.setattr(DataFrame, "collect", fail_action)
+    monkeypatch.setattr(DataFrame, "show", fail_action)
+    monkeypatch.setattr(DataFrame, "toLocalIterator", fail_action)
+
+    # Act
+    checked_df = auto_check_source(df, SOURCE_STRUCT)
+
+    # Assert
+    assert checked_df is df
+    assert action_calls == []
+
+
 def test_auto_validate_target_utility_is_reusable(spark: SparkSession) -> None:
     # Arrange
     df = spark.createDataFrame([(1, "ANA")], TARGET_STRUCT)
@@ -147,6 +172,114 @@ def test_auto_validate_target_utility_is_reusable(spark: SparkSession) -> None:
 
     # Assert
     assert validated_df.columns == ["id", "name_upper", "is_valid"]
+
+
+def test_auto_validate_uses_limited_count_without_exposing_records(
+    spark: SparkSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange
+    guarded_target_struct = StructType(
+        [
+            StructField("id", IntegerType(), nullable=False),
+            StructField(
+                "name_upper",
+                StringType(),
+                nullable=False,
+                metadata={
+                    "checks": [
+                        {
+                            "name": "name_upper_required",
+                            "rule": "name_upper IS NOT NULL",
+                            "severity": "error",
+                        }
+                    ]
+                },
+            ),
+        ]
+    )
+    df = spark.createDataFrame([(1, None)], "id int, name_upper string")
+    limited_dataframes: set[int] = set()
+    observed_calls: list[str] = []
+    original_limit = DataFrame.limit
+    original_count = DataFrame.count
+
+    def spy_limit(self: DataFrame, num: int) -> DataFrame:
+        observed_calls.append(f"limit({num})")
+        limited_df = original_limit(self, num)
+        if num == 1:
+            limited_dataframes.add(id(limited_df))
+        return limited_df
+
+    def spy_count(self: DataFrame) -> int:
+        observed_calls.append("count()")
+        assert id(self) in limited_dataframes
+        return original_count(self)
+
+    def fail_exposure(self: DataFrame, *args: object, **kwargs: object) -> object:
+        observed_calls.append("expose")
+        raise AssertionError("auto_validate must not expose records")
+
+    monkeypatch.setattr(DataFrame, "limit", spy_limit)
+    monkeypatch.setattr(DataFrame, "count", spy_count)
+    monkeypatch.setattr(DataFrame, "collect", fail_exposure)
+    monkeypatch.setattr(DataFrame, "show", fail_exposure)
+    monkeypatch.setattr(DataFrame, "toLocalIterator", fail_exposure)
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="Invalid records"):
+        auto_validate_target(df, guarded_target_struct)
+
+    assert observed_calls == ["limit(1)", "count()"]
+
+
+def test_nullable_false_does_not_block_null_without_explicit_check(
+    spark: SparkSession,
+) -> None:
+    # Arrange
+    df = spark.createDataFrame([(None, "ANA")], "id int, name_upper string")
+    nullable_intent_only = StructType(
+        [
+            StructField("id", IntegerType(), nullable=False),
+            StructField("name_upper", StringType(), nullable=False),
+        ]
+    )
+
+    # Act
+    validated_df = auto_validate_target(df, nullable_intent_only)
+
+    # Assert
+    assert validated_df.select("is_valid").collect() == [(True,)]
+
+
+def test_nullable_false_requires_explicit_sql_check_to_block_null(
+    spark: SparkSession,
+) -> None:
+    # Arrange
+    df = spark.createDataFrame([(None, "ANA")], "id int, name_upper string")
+    guarded_struct = StructType(
+        [
+            StructField(
+                "id",
+                IntegerType(),
+                nullable=False,
+                metadata={
+                    "checks": [
+                        {
+                            "name": "id_required",
+                            "rule": "id IS NOT NULL",
+                            "severity": "error",
+                        }
+                    ]
+                },
+            ),
+            StructField("name_upper", StringType(), nullable=False),
+        ]
+    )
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="Invalid records"):
+        auto_validate_target(df, guarded_struct)
 
 
 def test_auto_check_fails_when_source_struct_is_missing(spark: SparkSession) -> None:

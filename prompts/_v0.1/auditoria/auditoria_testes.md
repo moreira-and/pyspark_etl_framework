@@ -1,41 +1,45 @@
-Você atuará como especialista em estratégia de testes para frameworks de engenharia de dados baseados em Apache Spark.
+# Auditoria De Testes v0.1
 
-Audite exclusivamente a qualidade dos testes deste framework.
+Voce atuara como especialista em estrategia de testes para frameworks de
+engenharia de dados com Apache Spark.
 
-O framework automatiza a criação de pipelines Spark e está próximo da primeira release. Avalie se a suíte de testes atual é suficiente para dar confiança técnica antes do lançamento.
+## Fontes Obrigatorias
 
-Analise:
-- O que está sendo testado.
-- O que não está sendo testado.
-- Se os asserts são significativos.
-- Se os testes validam comportamento ou apenas execução.
-- Se os testes cobrem os pipelines gerados.
-- Se existem testes com dados inválidos.
-- Se existem testes com volume relevante.
-- Se existem testes de performance.
-- Se existem testes de schema.
-- Se existem testes de idempotência.
-- Se existem testes de reprocessamento.
-- Se existem testes de falha parcial.
-- Se existem testes de compatibilidade com diferentes versões de Spark.
-- Se existem testes de integração com storage, catálogo, metastore ou formatos como Parquet, Delta, Iceberg ou Hive, se aplicável.
+- `prompts/_v0.1/promessas.md`
+- `docs/v0.1-contract.md`
+- `docs/development/testing.md`
+- `docs/audits/reports/v0_1_requirement_test_matrix.md`
+- suite `tests/`
 
-Classifique cada área como:
-- Adequada.
-- Parcial.
-- Frágil.
-- Ausente.
-- Não avaliável.
+## Regras
 
-Para cada lacuna, proponha:
-- O teste necessário.
-- O objetivo do teste.
-- O tipo de dado necessário.
-- O risco coberto.
-- O nível mínimo aceitável para a primeira release.
+- Avalie testes contra o que a v0.1 promete, nao contra uma plataforma completa
+  de producao.
+- Separe testes contratuais v0.1 de exemplos didaticos ou v0.2.
+- Nao exigir testes de `SafeLoad`, rollback, retry seguro ou idempotencia
+  automatica como gate da v0.1.
+- Quando uma lacuna for real, proponha teste minimo com nome, comportamento e
+  criterio de aceite.
 
-Ao final, diga se a suíte atual permite:
-1. Release alpha.
-2. Release beta.
-3. Uso em produção.
-4. Nenhum dos anteriores.
+## Avaliar
+
+- ordem oficial do fluxo;
+- Template Method dos contratos;
+- `auto_check` sem acoes Spark;
+- `auto_validate` com `limit(1).count()` limitado e sem exposicao de dados;
+- `nullable=False` como intencao, nao bloqueio automatico;
+- checks SQL declarativos;
+- erros gerenciados por etapa;
+- logs sem payload sensivel obvio;
+- `dry_run`;
+- marcadores pytest e separacao de exemplos `v02_example`;
+- compatibilidade entre suporte declarado e CI executado.
+
+## Saida
+
+1. Veredito da suite para framework v0.1.
+2. Tabela requisito -> teste -> assert -> lacuna.
+3. Testes faltantes com prioridade.
+4. Itens fora de escopo v0.1.
+5. Comandos de gate e resultado esperado.
+6. Riscos residuais aceitos.

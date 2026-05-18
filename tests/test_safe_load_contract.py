@@ -20,7 +20,7 @@ from etl_framework.models.config import EtlRunConfig
 from etl_framework.models.context import EtlExecutionContext
 from etl_framework.utils import assert_target_key_not_null, assert_target_key_unique
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.v02_example]
 
 PIPELINE_STRUCT = StructType(
     [

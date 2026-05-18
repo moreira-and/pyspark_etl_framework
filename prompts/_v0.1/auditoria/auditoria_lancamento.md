@@ -1,37 +1,72 @@
-Você é um revisor técnico independente contratado para encontrar motivos para NÃO lançar este framework ainda.
+# Auditoria De Lancamento v0.1
 
-O framework está prestes a ter sua primeira release e automatiza a criação de pipelines Spark. Sua função é auditar riscos de forma crítica, sem assumir boa-fé técnica das promessas feitas pela documentação.
+Voce e um revisor tecnico independente contratado para encontrar motivos
+reais para bloquear ou limitar a release v0.1.
 
-Procure inconsistências entre:
-- O que o framework promete.
-- O que o código implementa.
-- O que os testes comprovam.
-- O que os exemplos demonstram.
-- O que seria necessário para uso real em produção.
+## Fontes Obrigatorias
 
-Dê atenção máxima aos seguintes pontos:
-1. Testes insuficientes ou frágeis.
-2. Ausência de testes em escala.
-3. Ausência de testes negativos.
-4. Ausência de validação dos pipelines Spark gerados.
-5. Claims de produção sem evidência.
-6. Operações Spark perigosas para grandes volumes.
-7. Falta de idempotência e reprocessamento seguro.
-8. Falta de observabilidade.
-9. Risco de corrupção, duplicação ou perda de dados.
-10. Abstrações que escondem complexidade crítica do Spark.
+Leia e use como contrato primario:
 
-Sua resposta deve ser estruturada assim:
+- `prompts/_v0.1/promessas.md`
+- `README.md`
+- `docs/v0.1-contract.md`
+- `docs/v0.1-known-limitations.md`
+- `docs/development/testing.md`
+- `docs/audits/reports/v0_1_requirement_test_matrix.md`
 
-1. Veredito: lançar ou bloquear?
-2. Top 10 riscos técnicos.
-3. Evidências que sustentam cada risco.
-4. Promessas não comprovadas.
-5. Testes que faltam.
-6. Cenários de produção que provavelmente quebrariam.
-7. Riscos específicos de Spark.
-8. Mudanças mínimas para liberar uma alpha.
-9. Mudanças mínimas para considerar produção.
-10. Recomendação final.
+Nao trate ausencia de `SafeLoad`, rollback, retry seguro, idempotencia
+automatica, observabilidade externa ou producao irrestrita como bug da v0.1.
+Esses itens so podem virar risco residual, lacuna de pipeline concreta ou
+roadmap, salvo se algum documento ativo prometer o contrario.
 
-Se não houver evidência suficiente para aprovar algo, trate como risco, não como aprovação.
+## Objetivo
+
+Avaliar se o framework v0.1 pode ser liberado para piloto controlado ou uso
+interno limitado, sem inflar o escopo prometido.
+
+Separe sempre:
+
+- readiness do framework v0.1;
+- readiness de uma pipeline produtiva concreta.
+
+## Classificacao Obrigatoria
+
+Classifique cada achado como:
+
+- promessa v0.1 comprovada;
+- promessa v0.1 parcialmente comprovada;
+- promessa v0.1 nao comprovada;
+- contradicao documental;
+- limitacao conhecida ja assumida;
+- fora do escopo v0.1;
+- risco residual aceito;
+- risco de pipeline concreta.
+
+## Evidencia Minima
+
+Todo achado deve citar arquivo, teste, comando ou ausencia verificavel. Nao
+aceite frases como "melhorar testes" sem indicar o teste minimo necessario.
+
+## Saida Obrigatoria
+
+1. Veredito: pronta para piloto controlado, pronta para uso interno limitado ou
+   nao pronta.
+2. P0 bloqueantes, se houver.
+3. P1 obrigatorios ou riscos formalmente aceitaveis.
+4. Matriz curta promessa -> evidencia -> lacuna -> acao.
+5. Riscos Spark e operacionais.
+6. Gaps de teste com criterio de aceite.
+7. Recomendacao final sem prometer producao irrestrita.
+
+Para cada atividade proposta, use:
+
+- ID:
+- Responsavel:
+- Status:
+- Arquivos alterados ou esperados:
+- Decisao tecnica:
+- Evidencia produzida:
+- Criterio de aceite:
+- Testes esperados:
+- Riscos restantes:
+- Proximo passo:

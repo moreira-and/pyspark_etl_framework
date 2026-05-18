@@ -32,6 +32,7 @@ testpaths = ["tests"]
 pythonpath = ["."]
 markers = [
     "integration: tests that exercise a complete local Spark pipeline",
+    "v02_example: executable examples for concrete pipelines or v0.2 roadmap, not core v0.1 release contract",
 ]
 
 [tool.coverage.run]

@@ -3,7 +3,8 @@
 Este exemplo mostra a menor forma util de montar uma pipeline com
 `etl_framework`.
 
-Ele e didatico. O `Load` abaixo nao e um padrao produtivo.
+Ele e didatico. O `QuickLoad` abaixo nao e um padrao produtivo e nao deve ser
+copiado para cargas reais sem checklist senior.
 
 ## 1. Instalar
 
@@ -134,6 +135,9 @@ dry_run=False
 dry_run_show_rows=0
 ```
 
+Essa troca so e aceitavel em pipeline concreta apos preencher o checklist de
+readiness de `Load`.
+
 Nao use `dry_run_show_rows > 0` em ambiente compartilhado. Esse modo chama
 `show(..., truncate=False)` e pode expor dados sensiveis.
 
@@ -146,7 +150,8 @@ Depois que o exemplo rodar:
 3. Coloque regras de negocio em `QuickTransform._transform`.
 4. Mantenha `target_struct` alinhado ao resultado transformado.
 5. Adicione checks SQL simples em `target_struct` quando quiser bloquear dados.
-6. Substitua `QuickLoad` por uma estrategia segura antes de qualquer producao.
+6. Substitua `QuickLoad` por uma estrategia revisada antes de qualquer uso real
+   com `dry_run=False`.
 
 `nullable=False` no `StructField` documenta intencao de schema, mas nao substitui
 um check SQL como `campo IS NOT NULL`.
@@ -155,4 +160,5 @@ um check SQL como `campo IS NOT NULL`.
 
 - [docs/v0.1-contract.md](docs/v0.1-contract.md)
 - [docs/v0.1-known-limitations.md](docs/v0.1-known-limitations.md)
+- [docs/operation/load-readiness-checklist.md](docs/operation/load-readiness-checklist.md)
 - [docs/roadmap/v0.2.md](docs/roadmap/v0.2.md)

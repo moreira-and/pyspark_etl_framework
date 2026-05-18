@@ -101,11 +101,12 @@ Essas limitacoes estao detalhadas em
 
 ## Instalar E Testar
 
-Pre-requisitos:
+Runtime oficial validado para a v0.1 controlada:
 
-- Python `>=3.11,<3.14`
+- Python `3.11`
+- Java `17` no CI; validacao local tambem deve registrar a versao usada
 - Poetry `2.1.4`
-- PySpark `>=3.5,<4.0`
+- PySpark `3.5.x` conforme lock/gate local
 
 Instalacao local:
 
@@ -130,6 +131,10 @@ Detalhes de teste ficam em
 - [docs/v0.1-contract.md](docs/v0.1-contract.md): contrato real da v0.1.
 - [docs/v0.1-known-limitations.md](docs/v0.1-known-limitations.md): limites
   conhecidos e como interpreta-los.
+- [docs/operation/load-readiness-checklist.md](docs/operation/load-readiness-checklist.md):
+  checklist obrigatorio antes de qualquer `Load` concreto com `dry_run=False`.
+- [docs/operation/spark-cost-and-benchmark.md](docs/operation/spark-cost-and-benchmark.md):
+  custo Spark conhecido e benchmark minimo por pipeline concreta.
 - [docs/roadmap/v0.2.md](docs/roadmap/v0.2.md): itens futuros, separados da
   realidade atual.
 - [docs/adr/0001-defer-safe-load-to-v0.2.md](docs/adr/0001-defer-safe-load-to-v0.2.md):
@@ -138,8 +143,9 @@ Detalhes de teste ficam em
   validacao local e CI.
 - [CHANGELOG.md](CHANGELOG.md): historico de mudancas.
 
-Documentos antigos, prompts e auditorias foram arquivados em `docs/archive/`.
-Eles nao fazem parte da documentacao ativa da v0.1.
+Prompts em `prompts/_v0.1/` sao insumos internos de auditoria e governanca.
+Eles devem ser lidos contra `promessas.md`; nao substituem o contrato ativo da
+v0.1.
 
 ## Licenca
 
