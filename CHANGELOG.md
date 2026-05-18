@@ -18,6 +18,15 @@ O projeto usa SemVer pragmatico:
 - Adiciona contrato explicito da v0.1 em `docs/v0.1-contract.md`.
 - Move limitacoes conhecidas para `docs/v0.1-known-limitations.md`.
 - Adiciona guia enxuto de testes em `docs/development/testing.md`.
+- Documenta que `auto_validate` executa uma acao Spark pequena para bloquear
+  invalidos e que `Load._load` recebe a coluna tecnica `is_valid`.
+
+### Changed
+
+- Separa a observabilidade de `load` e `certify` para que falhas de certificacao
+  nao sejam registradas como falhas de escrita.
+- Padroniza `Extract`, `Transform` e `Load` como Template Method, com
+  `_run_*` controlado pelo framework e hooks opcionais `_custom_*`.
 
 ## [0.1.0] - Base interna
 

@@ -31,13 +31,16 @@ poetry run pytest --cov=etl_framework --cov-report=term-missing
 ## O Que A Suite Deve Proteger
 
 - ordem `extract -> check -> transform -> validate -> load -> certify`;
+- wrappers Template Method em `Extract.run`, `Transform.run` e `Load.run`;
 - retorno invalido em etapas que prometem `DataFrame`;
 - falhas por etapa e propagacao de erro;
 - `auto_check` com `source_struct`;
 - `auto_validate` com `target_struct`;
 - bloqueio de registros invalidos antes de `load`;
 - comportamento de `dry_run`;
-- ausencia de `count`, `collect` e `show` automaticos no caminho normal;
+- ausencia de `show` e `collect` automaticos no caminho normal;
+- uso intencional de `limit(1).count()` no `auto_validate` para bloquear
+  registros invalidos antes de `load`;
 - validacao de metadata de checks;
 - logs e erros sem payload sensivel obvio;
 - helpers opcionais em `etl_framework.utils`.

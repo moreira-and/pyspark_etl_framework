@@ -20,7 +20,7 @@ Antes de qualquer implementação, você deve localizar e executar a auditoria u
 Prompt de auditoria a ser usado:
 
 ```text
-docs\archive\dev-audit\v0_1_severe_readiness_audit.md
+docs\archive\dev-audit\V0_1\v0_1_severe_readiness_audit.md
 ````
 
 A auditoria deve validar, entre outros pontos:
@@ -820,25 +820,3 @@ ou
 > NO-GO
 
 Nunca force aprovação.
-
-````
-
-Antes de rodar, eu ajustaria só este placeholder:
-
-```text
-<INFORMAR_CAMINHO_DO_PROMPT_DE_AUDITORIA_SEVERA>
-````
-
-Minha sugestão de caminho público no repo:
-
-```text
-docs/governance/audit_prompts/v0_1_readiness_audit.md
-```
-
-E o prompt de execução final poderia ficar em:
-
-```text
-docs/governance/audit_prompts/v0_1_final_hardening_execution.md
-```
-
-Crítica importante: não deixe o agente “melhorar tudo”. O prompt acima limita a execução a **P0/P1 + testes + documentação honesta**. Isso é o que evita uma madrugada produtiva virar uma madrugada criando arquitetura nova e risco novo.

@@ -249,6 +249,54 @@ def test_auto_validate_treats_existing_is_valid_null_as_invalid(
     assert exc_info.value.run_id == "run-auto"
 
 
+def test_auto_validate_blocks_invalid_target_record_before_load(
+    spark: SparkSession,
+) -> None:
+    # Arrange
+    guarded_target_struct = StructType(
+        [
+            StructField("id", IntegerType(), nullable=False),
+            StructField(
+                "name_upper",
+                StringType(),
+                nullable=False,
+                metadata={
+                    "checks": [
+                        {
+                            "name": "name_upper_required",
+                            "rule": "name_upper IS NOT NULL",
+                            "severity": "error",
+                        }
+                    ]
+                },
+            ),
+        ]
+    )
+
+    class InvalidBusinessTransform(Transform):
+        def _transform(self, df, spark, config, context):
+            return df.select(
+                "id",
+                F.lit(None).cast(StringType()).alias("name_upper"),
+            )
+
+    job, load, _, _ = pipeline(
+        spark,
+        transform=InvalidBusinessTransform(),
+        run_config=config(target_struct=guarded_target_struct),
+    )
+
+    # Act / Assert
+    with pytest.raises(ValidateError, match="Invalid records") as exc_info:
+        job.run()
+
+    assert exc_info.value.pipeline_name == "auto_contract"
+    assert exc_info.value.run_id == "run-auto"
+    assert exc_info.value.stage == "validate"
+    assert load.loaded is False
+    assert load.certified is False
+
+
 def test_dry_run_executes_auto_checks_and_skips_load_and_certify(
     spark: SparkSession,
 ) -> None:

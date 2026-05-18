@@ -1,3 +1,11 @@
+"""Concrete-pipeline safe-load examples, not a core v0.1 framework contract.
+
+The v0.1 package intentionally does not export `SafeLoad`, `LoadStrategy`,
+idempotency, rollback or destination certification. These tests keep an
+executable example of the behavior a reviewed pipeline or a future v0.2 helper
+should prove before claiming safe loading.
+"""
+
 from __future__ import annotations
 
 from typing import Any
@@ -149,7 +157,7 @@ class SafeMemoryLoad(Load):
 
 def config() -> EtlRunConfig:
     return EtlRunConfig(
-        pipeline_name="safe_load_contract",
+        pipeline_name="concrete_safe_load_example",
         target_schema="silver",
         target_table="people",
         target_path="memory://silver/people",

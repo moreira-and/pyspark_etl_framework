@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from pyspark.sql import DataFrame, SparkSession
 
 from etl_framework.contracts._type_checks import require_dataframe
-from etl_framework.infra.errors import CheckError, ExtractError, ensure_stage_error
+from etl_framework.infra.errors import CheckError, ExtractError
 from etl_framework.infra.stage import stage
 from etl_framework.models.config import EtlRunConfig
 from etl_framework.models.context import EtlExecutionContext
@@ -18,9 +18,10 @@ class Extract(ABC):
     The framework owns the execution order and error/logging standardization.
     Concrete pipelines own the source-specific extraction logic. The framework
     automatically checks the extracted DataFrame against `config.source_struct`
-    before downstream stages run. Pipelines may still override `_check` for
-    small legacy or pipeline-specific checks, but basic structural validation no
-    longer belongs in junior-owned pipeline code.
+    before downstream stages run. Pipelines may override `_custom_check` for
+    small pipeline-specific checks. The legacy `_check` hook is still called by
+    default for compatibility, but structural validation is always framework
+    owned and runs before any custom hook.
     """
 
     def run(
@@ -30,26 +31,29 @@ class Extract(ABC):
         context: EtlExecutionContext,
     ) -> DataFrame:
         """Execute extract, then automatic check, returning the checked DataFrame."""
-        try:
-            df = self._extract(spark, config, context)
-            df = require_dataframe(df, stage="extract")
-        except Exception as exc:
-            error = ensure_stage_error(
-                exc,
-                ExtractError,
-                pipeline_name=config.pipeline_name,
-                run_id=context.run_id,
-            )
-            if error is exc:
-                raise
-            raise error from exc
-
+        df = self._run_extract(
+            spark=spark,
+            config=config,
+            context=context,
+        )
         return self._run_check(
             df=df,
             spark=spark,
             config=config,
             context=context,
         )
+
+    @stage("extract", ExtractError)
+    def _run_extract(
+        self,
+        *,
+        spark: SparkSession,
+        config: EtlRunConfig,
+        context: EtlExecutionContext,
+    ) -> DataFrame:
+        """Execute the concrete extract hook and validate its return type."""
+        df = self._extract(spark, config, context)
+        return require_dataframe(df, stage="extract")
 
     @stage("check", CheckError)
     def _run_check(
@@ -62,7 +66,7 @@ class Extract(ABC):
     ) -> DataFrame:
         """Execute automatic source check and optional pipeline-specific hook."""
         checked_df = self._auto_check(df, config)
-        checked_df = self._check(checked_df, spark, config, context)
+        checked_df = self._custom_check(checked_df, spark, config, context)
         return require_dataframe(checked_df, stage="check")
 
     def _auto_check(self, df: DataFrame, config: EtlRunConfig) -> DataFrame:
@@ -90,5 +94,15 @@ class Extract(ABC):
         config: EtlRunConfig,
         context: EtlExecutionContext,
     ) -> DataFrame:
-        """Optional legacy hook for extra checks after automatic source check."""
+        """Legacy optional hook for extra checks after automatic source check."""
         return df
+
+    def _custom_check(
+        self,
+        df: DataFrame,
+        spark: SparkSession,
+        config: EtlRunConfig,
+        context: EtlExecutionContext,
+    ) -> DataFrame:
+        """Optional custom check hook after mandatory source validation."""
+        return self._check(df, spark, config, context)

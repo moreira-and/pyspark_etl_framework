@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from pyspark.sql import DataFrame, SparkSession
 
 from etl_framework.contracts._type_checks import require_dataframe
-from etl_framework.infra.errors import TransformError, ValidateError, ensure_stage_error
+from etl_framework.infra.errors import TransformError, ValidateError
 from etl_framework.infra.stage import stage
 from etl_framework.models.config import EtlRunConfig
 from etl_framework.models.context import EtlExecutionContext
@@ -18,9 +18,10 @@ class Transform(ABC):
     The framework owns sequencing, logging and error wrapping. Concrete
     pipelines own the business transformation. The framework automatically
     validates transformed data against `config.target_struct` before load.
-    Pipelines may still override `_validate` for small legacy or
-    pipeline-specific checks, but basic structural validation no longer belongs
-    in junior-owned pipeline code.
+    Pipelines may override `_custom_validate` for small pipeline-specific
+    checks. The legacy `_validate` hook is still called by default for
+    compatibility, but structural validation is always framework owned and runs
+    before any custom hook.
     """
 
     def run(
@@ -31,26 +32,31 @@ class Transform(ABC):
         context: EtlExecutionContext,
     ) -> DataFrame:
         """Execute transform, then automatic validate, returning a valid DataFrame."""
-        try:
-            df = self._transform(df, spark, config, context)
-            df = require_dataframe(df, stage="transform")
-        except Exception as exc:
-            error = ensure_stage_error(
-                exc,
-                TransformError,
-                pipeline_name=config.pipeline_name,
-                run_id=context.run_id,
-            )
-            if error is exc:
-                raise
-            raise error from exc
-
+        df = self._run_transform(
+            df=df,
+            spark=spark,
+            config=config,
+            context=context,
+        )
         return self._run_validate(
             df=df,
             spark=spark,
             config=config,
             context=context,
         )
+
+    @stage("transform", TransformError)
+    def _run_transform(
+        self,
+        *,
+        df: DataFrame,
+        spark: SparkSession,
+        config: EtlRunConfig,
+        context: EtlExecutionContext,
+    ) -> DataFrame:
+        """Execute the concrete transform hook and validate its return type."""
+        transformed_df = self._transform(df, spark, config, context)
+        return require_dataframe(transformed_df, stage="transform")
 
     @stage("validate", ValidateError)
     def _run_validate(
@@ -63,7 +69,7 @@ class Transform(ABC):
     ) -> DataFrame:
         """Execute automatic target validation and optional pipeline hook."""
         validated_df = self._auto_validate(df, config)
-        validated_df = self._validate(validated_df, spark, config, context)
+        validated_df = self._custom_validate(validated_df, spark, config, context)
         return require_dataframe(validated_df, stage="validate")
 
     def _auto_validate(self, df: DataFrame, config: EtlRunConfig) -> DataFrame:
@@ -92,5 +98,15 @@ class Transform(ABC):
         config: EtlRunConfig,
         context: EtlExecutionContext,
     ) -> DataFrame:
-        """Optional legacy hook for extra checks after automatic target validation."""
+        """Legacy optional hook for extra checks after automatic target validation."""
         return df
+
+    def _custom_validate(
+        self,
+        df: DataFrame,
+        spark: SparkSession,
+        config: EtlRunConfig,
+        context: EtlExecutionContext,
+    ) -> DataFrame:
+        """Optional custom validate hook after mandatory target validation."""
+        return self._validate(df, spark, config, context)

@@ -45,8 +45,8 @@ Em uma pipeline comum, o desenvolvedor implementa:
 
 Hooks opcionais existem para casos especificos:
 
-- `Extract._check`
-- `Transform._validate`
+- `Extract._custom_check`
+- `Transform._custom_validate`
 
 Na v0.1, o junior nao precisa chamar manualmente `validate_schema` para o schema
 da origem nem `validate_struct` para o schema do destino. O framework faz isso
@@ -54,15 +54,30 @@ automaticamente a partir de `source_struct` e `target_struct`.
 
 ## O Que O Framework Automatiza
 
-`Extract.run()` executa `_extract`, valida que o retorno e um `DataFrame` e roda
-o check estrutural automatico com `config.source_struct`.
+`Extract.run()` executa `_run_extract()`, valida que `_extract()` retornou um
+`DataFrame`, executa `_run_check()`, aplica `config.source_struct` e so entao
+chama `_custom_check()`.
 
-`Transform.run()` executa `_transform`, valida que o retorno e um `DataFrame` e
-roda o validate estrutural automatico com `config.target_struct`.
+`Transform.run()` executa `_run_transform()`, valida que `_transform()` retornou
+um `DataFrame`, executa `_run_validate()`, aplica `config.target_struct` e so
+entao chama `_custom_validate()`.
+
+`Load.run()` valida que recebeu um `DataFrame`. Com `dry_run=True`, produz
+evidencia tecnica de dry-run e nao chama `_load()` nem `_certify()`. Com
+`dry_run=False`, executa `_run_load()` e depois `_run_certify()`.
 
 `auto_validate` adiciona a coluna tecnica `is_valid` e bloqueia registros
 invalidos antes de `load`. Regras declarativas podem ser definidas em
 `StructField.metadata["checks"]` usando expressoes SQL Spark simples.
+
+Para bloquear invalidos, `auto_validate` executa uma acao Spark pequena
+(`limit(1).count()`) depois de criar `is_valid`. Essa acao faz parte do contrato
+da v0.1; ela evita escrita de registros invalidos, mas deve ser considerada em
+pipelines de grande volume.
+
+`Load._load` recebe o `DataFrame` ja validado, incluindo a coluna tecnica
+`is_valid`. Se o destino nao aceitar essa coluna, a propria implementacao de
+`Load` deve projetar apenas as colunas de negocio antes da escrita.
 
 ## O Que A v0.1 Nao Garante
 

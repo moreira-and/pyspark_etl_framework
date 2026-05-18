@@ -7,14 +7,7 @@ from pyspark.sql import DataFrame, SparkSession
 from etl_framework.contracts.extract import Extract
 from etl_framework.contracts.load import Load
 from etl_framework.contracts.transform import Transform
-from etl_framework.infra.errors import (
-    ExtractError,
-    LoadError,
-    TransformError,
-    ensure_stage_error,
-)
 from etl_framework.infra.logger import get_logger, log_event
-from etl_framework.infra.stage import stage
 from etl_framework.models.config import EtlRunConfig
 from etl_framework.models.context import EtlExecutionContext
 
@@ -119,7 +112,6 @@ class Pipeline:
         """Run the extract contract and apply dry-run limiting when enabled."""
         return self._run_extract()
 
-    @stage("extract", ExtractError)
     def _run_extract(self) -> DataFrame:
         """Run extract/check and apply dry-run limiting when enabled."""
         df = self.extract_step.run(
@@ -133,7 +125,6 @@ class Pipeline:
         """Run the transform contract for a checked DataFrame."""
         return self._run_transform(df)
 
-    @stage("transform", TransformError)
     def _run_transform(self, df: DataFrame) -> DataFrame:
         """Run transform/validate for a checked DataFrame."""
         return self.transform_step.run(
@@ -144,80 +135,9 @@ class Pipeline:
         )
 
     def load(self, df: DataFrame) -> None:
-        """Run the load contract unless dry-run mode skips the write."""
-        if not self.config.dry_run:
-            self._run_load(df)
-            return
+        """Run the load contract; `Load.run` owns dry-run behavior."""
+        self._run_load(df)
 
-        started_at = time.perf_counter()
-        log_event(
-            self.logger,
-            "load_started",
-            self.config,
-            self.context,
-            stage="load",
-            status="started",
-        )
-
-        try:
-            if self.config.dry_run:
-                log_event(
-                    self.logger,
-                    "dry_run_load_skipped",
-                    self.config,
-                    self.context,
-                    stage="load",
-                    status="skipped",
-                    dry_run_show_rows=self.config.dry_run_show_rows,
-                )
-                if self.config.dry_run_show_rows > 0:
-                    log_event(
-                        self.logger,
-                        "dry_run_sample_requested",
-                        self.config,
-                        self.context,
-                        stage="load",
-                        status="sample_requested",
-                        dry_run_show_rows=self.config.dry_run_show_rows,
-                    )
-                    df.show(self.config.dry_run_show_rows, truncate=False)
-                elapsed_ms = round((time.perf_counter() - started_at) * 1000, 2)
-                log_event(
-                    self.logger,
-                    "dry_run_load_completed",
-                    self.config,
-                    self.context,
-                    stage="load",
-                    status="skipped",
-                    elapsed_ms=elapsed_ms,
-                    dry_run=True,
-                )
-                return
-
-        except Exception as exc:
-            error = ensure_stage_error(
-                exc,
-                LoadError,
-                pipeline_name=self.config.pipeline_name,
-                run_id=self.context.run_id,
-            )
-            elapsed_ms = round((time.perf_counter() - started_at) * 1000, 2)
-            log_event(
-                self.logger,
-                "load_failed",
-                self.config,
-                self.context,
-                stage="load",
-                status="failed",
-                elapsed_ms=elapsed_ms,
-                error_type=type(error).__name__,
-                error_message=str(error),
-            )
-            if error is exc:
-                raise
-            raise error from exc
-
-    @stage("load", LoadError)
     def _run_load(self, df: DataFrame) -> None:
         """Run the real load path. Dry-run is handled by `load`."""
         self.load_step.run(

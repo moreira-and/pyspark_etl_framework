@@ -72,6 +72,8 @@ class QuickTransform(Transform):
 
 class QuickLoad(Load):
     def _load(self, df, spark, config, context):
+        # O DataFrame chega validado e inclui a coluna tecnica is_valid.
+        # Este exemplo didatico grava tudo; loads reais podem projetar colunas.
         df.write.mode(config.write_mode or "overwrite").parquet(config.target_path)
 
     def _certify(self, df, spark, config, context):
@@ -118,8 +120,12 @@ Com `dry_run=True`, o framework:
 3. aplica `dry_run_limit`;
 4. executa `QuickTransform._transform`;
 5. roda `auto_validate` com `target_struct`;
-6. pula `_load` e `_certify`;
-7. retorna o `DataFrame` final.
+6. `Load.run()` registra evidencia tecnica de dry-run;
+7. pula `_load` e `_certify`;
+8. retorna o `DataFrame` final.
+
+No caminho normal, `auto_validate` executa `limit(1).count()` para impedir que
+registros com `is_valid=False` cheguem ao `Load`.
 
 Para permitir escrita real, use:
 

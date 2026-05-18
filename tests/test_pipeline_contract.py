@@ -329,17 +329,17 @@ def test_pipeline_run_emits_required_log_events_on_success(
     assert [payload["event"] for payload in payloads] == [
         "run_started",
         "extract_started",
+        "extract_succeeded",
         "check_started",
         "check_succeeded",
-        "extract_succeeded",
         "transform_started",
+        "transform_succeeded",
         "validate_started",
         "validate_succeeded",
-        "transform_succeeded",
         "load_started",
+        "load_succeeded",
         "certify_started",
         "certify_succeeded",
-        "load_succeeded",
         "run_succeeded",
         "execution_summary",
     ]
@@ -391,17 +391,70 @@ def test_pipeline_run_emits_failure_log_event_with_context(
     }
     assert set(failure_events) == {
         "validate_failed",
-        "transform_failed",
         "run_failed",
     }
     assert failure_events["validate_failed"]["stage"] == "validate"
     assert failure_events["validate_failed"]["status"] == "failed"
     assert failure_events["validate_failed"]["error_type"] == "ValidateError"
-    assert failure_events["transform_failed"]["stage"] == "transform"
-    assert failure_events["transform_failed"]["error_type"] == "ValidateError"
     assert failure_events["run_failed"]["stage"] == "run"
     assert failure_events["run_failed"]["status"] == "failed"
     assert failure_events["run_failed"]["error_type"] == "ValidateError"
+
+    summary = payloads[-1]
+    assert summary["event"] == "execution_summary"
+    assert summary["stage"] == "run"
+    assert summary["status"] == "failed"
+    assert summary["error_type"] == "ValidateError"
+
+
+def test_certify_failure_is_not_logged_as_load_failure(
+    spark: SparkSession,
+) -> None:
+    # Arrange
+    pipeline_name = "orders_pipeline_certify_failure"
+    _, handler = capture_pipeline_events(pipeline_name)
+    events: list[str] = []
+    pipeline, _ = build_pipeline(
+        spark,
+        events,
+        config=make_config(pipeline_name=pipeline_name),
+        load=RecordingLoad(events, fail_stage="certify"),
+    )
+
+    # Act
+    with pytest.raises(CertifyError) as error_info:
+        pipeline.run()
+
+    # Assert
+    error = error_info.value
+    assert error.pipeline_name == pipeline_name
+    assert error.stage == "certify"
+    assert error.run_id == RUN_ID
+    assert isinstance(error.cause, RuntimeError)
+    assert events == ["extract", "check", "transform", "validate", "load", "certify"]
+
+    payloads = event_payloads(handler)
+    event_names = [payload["event"] for payload in payloads]
+    assert "load_succeeded" in event_names
+    assert "certify_failed" in event_names
+    assert "load_failed" not in event_names
+    assert event_names[-2:] == ["run_failed", "execution_summary"]
+
+    failure_events = {
+        payload["event"]: payload
+        for payload in payloads
+        if str(payload["event"]).endswith("_failed")
+    }
+    assert set(failure_events) == {"certify_failed", "run_failed"}
+    assert failure_events["certify_failed"]["stage"] == "certify"
+    assert failure_events["certify_failed"]["error_type"] == "CertifyError"
+    assert failure_events["run_failed"]["stage"] == "run"
+    assert failure_events["run_failed"]["error_type"] == "CertifyError"
+
+    summary = payloads[-1]
+    assert summary["event"] == "execution_summary"
+    assert summary["status"] == "failed"
+    assert summary["error_type"] == "CertifyError"
 
 
 def test_pipeline_normal_mode_does_not_trigger_show_or_collect(
