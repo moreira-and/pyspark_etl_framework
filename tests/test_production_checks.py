@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import logging
-
 import pytest
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.types import IntegerType, StringType, StructField, StructType
 
 from etl_framework import EtlRunConfig, Extract, Load, Pipeline, Transform
-from etl_framework.infra.logger import log_event
 from etl_framework.models.context import EtlExecutionContext
 from etl_framework.utils import (
     assert_freshness_at_least,
@@ -22,17 +19,9 @@ from etl_framework.utils import (
     validate_schema,
     validate_struct,
 )
+from etl_framework.utils.observability_events import build_observability_event
 
 pytestmark = pytest.mark.integration
-
-
-class CapturingHandler(logging.Handler):
-    def __init__(self) -> None:
-        super().__init__()
-        self.records: list[logging.LogRecord] = []
-
-    def emit(self, record: logging.LogRecord) -> None:
-        self.records.append(record)
 
 
 def test_validate_schema_rejects_missing_source_column(spark: SparkSession) -> None:
@@ -102,9 +91,6 @@ def test_pipeline_auto_validation_adds_is_valid_before_write(
     class InlineExtract(Extract):
         def _extract(self, spark, config, context):
             return spark.createDataFrame([(1, "ana")], "id int, name string")
-
-        def _check(self, df, spark, config, context):
-            return validate_schema(df, config.source_struct)
 
     class JuniorTransform(Transform):
         def _transform(self, df, spark, config, context):
@@ -228,15 +214,8 @@ def test_invalid_records_can_be_split_or_blocked(spark: SparkSession) -> None:
         assert_no_invalid_records(df)
 
 
-def test_operational_metrics_are_logged_when_required_metrics_exist() -> None:
+def test_operational_metrics_are_included_in_runtime_payload() -> None:
     # Arrange
-    logger = logging.getLogger("tests.production_checks.metrics")
-    logger.handlers.clear()
-    logger.setLevel(logging.INFO)
-    logger.propagate = False
-    handler = CapturingHandler()
-    logger.addHandler(handler)
-
     context = EtlExecutionContext(
         run_id="run-metrics",
         metrics={
@@ -256,11 +235,11 @@ def test_operational_metrics_are_logged_when_required_metrics_exist() -> None:
     )
 
     # Act
-    log_event(logger, "certify_succeeded", config, context, stage="certify")
+    payload = build_observability_event(
+        "certify_succeeded", config, context, stage="certify"
+    )
 
     # Assert
-    payload = handler.records[0].msg
-    assert isinstance(payload, dict)
     assert payload["metrics"] == {
         "rows_read": 2,
         "rows_valid": 2,
@@ -269,14 +248,8 @@ def test_operational_metrics_are_logged_when_required_metrics_exist() -> None:
     }
 
 
-def test_operational_metrics_require_reason_when_metric_is_missing() -> None:
+def test_operational_metrics_include_missing_reasons_when_metric_is_missing() -> None:
     # Arrange
-    logger = logging.getLogger("tests.production_checks.missing_metric_reason")
-    logger.handlers.clear()
-    logger.setLevel(logging.INFO)
-    logger.propagate = False
-    handler = CapturingHandler()
-    logger.addHandler(handler)
     context = EtlExecutionContext(
         run_id="run-missing-metrics",
         metrics={
@@ -306,8 +279,8 @@ def test_operational_metrics_require_reason_when_metric_is_missing() -> None:
     assert context.metrics["rows_valid_missing_reason"]
     assert context.metrics["rows_invalid_missing_reason"]
 
-    log_event(logger, "certify_succeeded", config, context, stage="certify")
-    payload = handler.records[0].msg
-    assert isinstance(payload, dict)
+    payload = build_observability_event(
+        "certify_succeeded", config, context, stage="certify"
+    )
     assert "rows_valid_missing_reason" in payload["metrics"]
     assert "rows_invalid_missing_reason" in payload["metrics"]

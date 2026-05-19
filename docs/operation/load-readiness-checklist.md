@@ -4,8 +4,7 @@ Este checklist e obrigatorio antes de qualquer execucao `dry_run=False` em
 ambiente produtivo ou compartilhado.
 
 Ele valida uma pipeline concreta. Ele nao transforma a v0.1 em plataforma de
-load seguro, nao implementa `SafeLoad`, rollback, retry seguro ou idempotencia
-automatica.
+load seguro, rollback, retry seguro ou idempotencia automatica.
 
 ## Decisao De Readiness
 

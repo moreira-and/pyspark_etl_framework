@@ -7,10 +7,14 @@ import pytest
 from pyspark.sql import DataFrame, SparkSession
 
 from etl_framework.infra.errors import ExtractError, ValidateError
-from etl_framework.infra.logger import EVENT_SCHEMA_VERSION
+from etl_framework.infra.observability import (
+    configure_observability_sink,
+    reset_observability_sink,
+)
 from etl_framework.infra.stage import stage
 from etl_framework.models.config import EtlRunConfig
 from etl_framework.models.context import EtlExecutionContext
+from etl_framework.utils.observability_events import EVENT_SCHEMA_VERSION
 
 
 class CapturingHandler(logging.Handler):
@@ -38,14 +42,16 @@ def _context() -> EtlExecutionContext:
     )
 
 
-def _logger() -> tuple[logging.Logger, CapturingHandler]:
-    logger = logging.getLogger("tests.test_stage")
+def _capture_pipeline_logger(
+    pipeline_name: str = "stage_test_pipeline",
+) -> CapturingHandler:
+    logger = logging.getLogger(pipeline_name)
     logger.handlers.clear()
     logger.setLevel(logging.INFO)
     logger.propagate = False
     handler = CapturingHandler()
     logger.addHandler(handler)
-    return logger, handler
+    return handler
 
 
 def _payloads(handler: CapturingHandler) -> list[dict[str, object]]:
@@ -61,7 +67,7 @@ class StageProbe:
     def __init__(self) -> None:
         self.config = _config()
         self.context = _context()
-        self.logger, self.handler = _logger()
+        self.handler = _capture_pipeline_logger(self.config.pipeline_name)
 
     @stage("extract", ExtractError)
     def extract(self) -> str:
@@ -89,6 +95,7 @@ def test_stage_logs_started_and_succeeded_with_trace_fields() -> None:
 
     # Assert
     assert result == "ok"
+    assert not hasattr(probe, "logger")
     payloads = _payloads(probe.handler)
     assert [payload["event"] for payload in payloads] == [
         "extract_started",
@@ -102,6 +109,25 @@ def test_stage_logs_started_and_succeeded_with_trace_fields() -> None:
     assert payloads[1]["status"] == "succeeded"
     assert "elapsed_ms" in payloads[1]
 
+
+class FailingSink:
+    def emit(self, event: object) -> None:
+        raise RuntimeError("sink is down")
+
+
+def test_stage_does_not_fail_when_sink_fails() -> None:
+    # Arrange
+    configure_observability_sink(FailingSink())
+    probe = StageProbe()
+
+    try:
+        # Act
+        result = probe.extract()
+    finally:
+        reset_observability_sink()
+
+    # Assert
+    assert result == "ok"
 
 def test_stage_logs_failed_and_wraps_generic_exception() -> None:
     # Arrange

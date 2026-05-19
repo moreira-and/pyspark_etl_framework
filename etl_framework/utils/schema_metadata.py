@@ -6,6 +6,8 @@ from typing import Any
 
 from pyspark.sql.types import StructField, StructType
 
+from etl_framework.utils.check_metadata import normalize_check_metadata
+
 
 class SchemaMetadataValidator:
     """Validate declarative schema metadata used by the ETL framework.
@@ -70,7 +72,6 @@ class SchemaMetadataValidator:
 class CheckMetadataValidator:
     """Validate one declarative quality check from StructField metadata."""
 
-    ALLOWED_SEVERITIES = {"error", "warning"}
     SQL_INVALID_OPERATORS = {
         r"\>\>": "> (greater than)",
         r"\<\<": "< (less than)",
@@ -86,44 +87,12 @@ class CheckMetadataValidator:
 
     def validate(self) -> None:
         """Validate required fields, optional fields and simple SQL mistakes."""
-        if not isinstance(self.check, dict):
-            raise TypeError(f"{self.path} must be dict")
-
-        self._require_field("name")
-        rule = self._require_field("rule")
-        self._validate_severity()
-        self._validate_optional_string("message")
-        self._validate_sql_rule(rule)
-
-    def _require_field(self, field: str) -> str:
-        """Return a required non-empty string field."""
-        value = self.check.get(field, "")
-
-        if not isinstance(value, str) or not value.strip():
-            raise ValueError(f"{self.path}.{field} must be non-empty string")
-
-        return value.strip()
-
-    def _validate_severity(self) -> None:
-        """Validate the optional severity value used by data-quality checks."""
-        value = self.check.get("severity")
-        if value is None:
-            return
-
-        if not isinstance(value, str):
-            raise TypeError(f"{self.path}.severity must be string")
-
-        if value not in self.ALLOWED_SEVERITIES:
-            raise ValueError(
-                f"{self.path}.severity must be one of "
-                f"{sorted(self.ALLOWED_SEVERITIES)}"
-            )
-
-    def _validate_optional_string(self, field: str) -> None:
-        """Validate an optional metadata string field."""
-        if (value := self.check.get(field)) is not None:
-            if not isinstance(value, str):
-                raise TypeError(f"{self.path}.{field} must be string")
+        normalized = normalize_check_metadata(
+            self.check,
+            path=self.path,
+            field_path=self.field_name,
+        )
+        self._validate_sql_rule(normalized["rule"])
 
     def _validate_sql_rule(self, rule: str) -> None:
         """Validate simple SQL expression mistakes without executing the rule."""

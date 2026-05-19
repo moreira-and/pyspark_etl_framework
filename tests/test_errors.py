@@ -11,8 +11,8 @@ from etl_framework.infra.errors import (
     TransformError,
     ValidateError,
     ensure_stage_error,
-    sanitize_error_message,
 )
+from etl_framework.utils.sanitization import sanitize_error_message
 
 
 @pytest.mark.parametrize(

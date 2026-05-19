@@ -1,51 +1,24 @@
 from __future__ import annotations
 
-import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from etl_framework.infra.errors import sanitize_error_message
 from etl_framework.models.config import EtlRunConfig
 from etl_framework.models.context import EtlExecutionContext
+from etl_framework.utils.sanitization import sanitize_error_message
 
 _METRIC_SCALAR_TYPES = (str, int, float, bool, type(None))
 _SENSITIVE_EXTRA_FIELDS = {"error", "error_message", "exception", "cause_message"}
 EVENT_SCHEMA_VERSION = "1.0"
 
 
-def get_logger(name: str) -> logging.Logger:
-    """Return the standard framework logger for a pipeline.
-
-    The logger writes plain event payloads to stdout/stderr through the Python
-    standard library. It intentionally avoids external logging dependencies.
-    """
-    logger = logging.getLogger(name)
-
-    if logger.handlers:
-        return logger
-
-    logger.setLevel(logging.INFO)
-
-    handler = logging.StreamHandler()
-    handler.setFormatter(logging.Formatter("%(message)s"))
-
-    logger.addHandler(handler)
-    logger.propagate = False
-    return logger
-
-
-def log_event(
-    logger: logging.Logger,
+def build_observability_event(
     event: str,
     config: EtlRunConfig,
     context: EtlExecutionContext,
     **extra: Any,
-) -> None:
-    """Write one structured event for an ETL run.
-
-    All framework events include the pipeline name, run id and execution mode.
-    Callers provide the stage, status and any additional diagnostic metadata.
-    """
+) -> dict[str, object]:
+    """Build one structured event payload for an ETL run."""
     extra_payload = dict(extra)
     metrics = _serializable_metrics(context.metrics)
     if "metrics" in extra_payload:
@@ -68,16 +41,16 @@ def log_event(
     }
     if metrics:
         payload["metrics"] = metrics
-    logger.info(_sanitize_log_payload(payload))
+    return _sanitize_event_payload(payload)
 
 
 def _resolve_mode(config: EtlRunConfig) -> str:
-    """Resolve the execution mode shown in framework logs."""
+    """Resolve the execution mode shown in framework observability events."""
     return "dry_run" if config.dry_run else "prod"
 
 
 def _serializable_metrics(metrics: object) -> dict[str, object]:
-    """Return a small JSON-serializable metrics mapping for log payloads."""
+    """Return a small JSON-serializable metrics mapping for event payloads."""
     if not isinstance(metrics, dict):
         return {}
 
@@ -91,7 +64,7 @@ def _serializable_metrics(metrics: object) -> dict[str, object]:
     return serializable
 
 
-def _sanitize_log_payload(payload: dict[str, Any]) -> dict[str, Any]:
+def _sanitize_event_payload(payload: dict[str, Any]) -> dict[str, Any]:
     """Sanitize known error fields without hiding normal operational metadata."""
     sanitized = dict(payload)
     for field in _SENSITIVE_EXTRA_FIELDS:

@@ -14,7 +14,7 @@ from pyspark.sql.types import (
 from etl_framework import EtlRunConfig, Extract, Load, Pipeline, Transform
 from etl_framework.infra.errors import CheckError, ValidateError
 from etl_framework.models.context import EtlExecutionContext
-from etl_framework.utils import auto_check_source, auto_validate_target
+from etl_framework.utils.auto_quality import auto_check_source, auto_validate_target
 
 pytestmark = pytest.mark.integration
 

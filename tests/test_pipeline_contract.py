@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from typing import Any
 
 import pytest
@@ -17,9 +18,10 @@ from etl_framework.infra.errors import (
     TransformError,
     ValidateError,
 )
-from etl_framework.infra.logger import EVENT_SCHEMA_VERSION
+from etl_framework.infra.observability import configure_observability_sink
 from etl_framework.models.config import EtlRunConfig
 from etl_framework.models.context import EtlExecutionContext
+from etl_framework.utils.observability_events import EVENT_SCHEMA_VERSION
 
 RUN_ID = "run-pipeline-contract"
 PIPELINE_NAME = "orders_pipeline"
@@ -50,6 +52,14 @@ class CapturingHandler(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         self.records.append(record)
+
+
+class InMemoryObservabilitySink:
+    def __init__(self) -> None:
+        self.events: list[dict[str, object]] = []
+
+    def emit(self, event: Mapping[str, object]) -> None:
+        self.events.append(dict(event))
 
 
 def make_config(**overrides: object) -> EtlRunConfig:
@@ -105,7 +115,7 @@ class RecordingExtract(Extract):
             return ["not", "a", "dataframe"]  # type: ignore[return-value]
         return input_df(spark)
 
-    def _check(
+    def _custom_check(
         self,
         df: DataFrame,
         spark: SparkSession,
@@ -148,7 +158,7 @@ class RecordingTransform(Transform):
             return ("not", "a", "dataframe")  # type: ignore[return-value]
         return df.withColumn("amount_with_tax", df.amount + 1)
 
-    def _validate(
+    def _custom_validate(
         self,
         df: DataFrame,
         spark: SparkSession,
@@ -308,7 +318,7 @@ def test_run_executes_official_order(spark: SparkSession) -> None:
     assert load_step.certified_row_count == 3
 
 
-def test_pipeline_run_emits_required_log_events_on_success(
+def test_pipeline_run_emits_required_observability_events_on_success(
     spark: SparkSession,
 ) -> None:
     # Arrange
@@ -357,7 +367,47 @@ def test_pipeline_run_emits_required_log_events_on_success(
     assert payloads[-1]["mode"] == "prod"
 
 
-def test_pipeline_run_emits_failure_log_event_with_context(
+def test_pipeline_run_uses_configured_sink_without_logger_dependency(
+    spark: SparkSession,
+) -> None:
+    # Arrange
+    sink = InMemoryObservabilitySink()
+    configure_observability_sink(sink)
+    events: list[str] = []
+    pipeline, _ = build_pipeline(
+        spark,
+        events,
+        config=make_config(pipeline_name="orders_pipeline_custom_sink"),
+    )
+
+    # Act
+    pipeline.run()
+
+    # Assert
+    assert not hasattr(pipeline, "logger")
+    assert [event["event"] for event in sink.events] == [
+        "run_started",
+        "extract_started",
+        "extract_succeeded",
+        "check_started",
+        "check_succeeded",
+        "transform_started",
+        "transform_succeeded",
+        "validate_started",
+        "validate_succeeded",
+        "load_started",
+        "load_succeeded",
+        "certify_started",
+        "certify_succeeded",
+        "run_succeeded",
+        "execution_summary",
+    ]
+    assert {event["pipeline_name"] for event in sink.events} == {
+        "orders_pipeline_custom_sink"
+    }
+
+
+def test_pipeline_run_emits_failure_observability_event_with_context(
     spark: SparkSession,
 ) -> None:
     # Arrange
@@ -482,7 +532,7 @@ def test_pipeline_normal_mode_does_not_trigger_show_or_collect(
         ) -> DataFrame:
             return input_df(spark)
 
-        def _check(
+        def _custom_check(
             self,
             df: DataFrame,
             spark: SparkSession,
@@ -501,7 +551,7 @@ def test_pipeline_normal_mode_does_not_trigger_show_or_collect(
         ) -> DataFrame:
             return df.withColumn("amount_with_tax", df.amount + 1)
 
-        def _validate(
+        def _custom_validate(
             self,
             df: DataFrame,
             spark: SparkSession,
@@ -568,7 +618,7 @@ def test_pipeline_stages_share_same_spark_config_and_context_instances(
             seen.append(("extract", spark, config, context))
             return input_df(spark)
 
-        def _check(
+        def _custom_check(
             self,
             df: DataFrame,
             spark: SparkSession,
@@ -589,7 +639,7 @@ def test_pipeline_stages_share_same_spark_config_and_context_instances(
             seen.append(("transform", spark, config, context))
             return df.withColumn("amount_with_tax", df.amount + 1)
 
-        def _validate(
+        def _custom_validate(
             self,
             df: DataFrame,
             spark: SparkSession,

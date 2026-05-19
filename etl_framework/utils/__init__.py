@@ -1,4 +1,3 @@
-from etl_framework.utils.auto_quality import auto_check_source, auto_validate_target
 from etl_framework.utils.production_checks import (
     REQUIRED_OPERATIONAL_METRICS,
     assert_freshness_at_least,
@@ -21,8 +20,6 @@ __all__ = [
     "assert_target_key_not_null",
     "assert_target_key_unique",
     "assert_volume_between",
-    "auto_check_source",
-    "auto_validate_target",
     "require_is_valid_column",
     "require_operational_metrics",
     "split_valid_invalid",

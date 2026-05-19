@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import re
 import warnings
 from functools import reduce
@@ -10,10 +9,10 @@ from pyspark.sql import DataFrame, Row, SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.types import StructField, StructType
 
-logger = logging.getLogger(__name__)
+from etl_framework.utils.check_metadata import normalize_check_metadata
 
 MAX_CHECKS_PER_BATCH = 100
-ALLOWED_SEVERITIES = {"error", "warning"}
+Check = dict[str, Any]
 
 
 def validate_struct(
@@ -38,14 +37,12 @@ def validate_struct(
     validate_schema(df, schema, strict=strict)
 
     checks = _extract_all_checks(schema)
-    logger.info("Validating with %s checks", len(checks))
     _validate_check_rules(df, checks)
 
     validated_df = _add_is_valid_column(df, checks)
 
     summary_df = None
     if compute_summary:
-        logger.info("Computing validation summary")
         summary_df = _build_checks_summary(validated_df, checks)
 
     return validated_df, summary_df
@@ -58,8 +55,8 @@ def validate_schema(
 ) -> DataFrame:
     """Validate only names and data types, returning the original DataFrame.
 
-    Use this in `_check` for `source_struct` validation. It does not create the
-    `is_valid` column and does not execute Spark actions.
+    The framework uses this for automatic source validation. It does not create
+    the `is_valid` column and does not execute Spark actions.
     """
     if df is None or schema is None:
         raise ValueError("DataFrame and schema cannot be None")
@@ -102,14 +99,13 @@ def _validate_schema_match(
             message = (
                 "WARNING: Extra columns not declared in schema: " f"{extra_columns}"
             )
-            logger.warning(message)
             warnings.warn(message, UserWarning, stacklevel=2)
 
     if errors:
         raise ValueError("Schema mismatch:\n  - " + "\n  - ".join(errors))
 
 
-def _extract_all_checks(schema: StructType, prefix: str = "") -> list[dict[str, Any]]:
+def _extract_all_checks(schema: StructType, prefix: str = "") -> list[Check]:
     """Extract check metadata recursively from a StructType."""
     checks = []
 
@@ -123,7 +119,7 @@ def _extract_all_checks(schema: StructType, prefix: str = "") -> list[dict[str, 
     return checks
 
 
-def _extract_field_checks(field: StructField, field_path: str) -> list[dict[str, Any]]:
+def _extract_field_checks(field: StructField, field_path: str) -> list[Check]:
     """Extract and validate all checks declared for one field."""
     raw_checks = (field.metadata or {}).get("checks")
 
@@ -138,48 +134,22 @@ def _extract_field_checks(field: StructField, field_path: str) -> list[dict[str,
     ]
 
 
-def _parse_check(check: dict[str, Any], field_path: str, index: int) -> dict[str, Any]:
+def _parse_check(check: dict[str, Any], field_path: str, index: int) -> Check:
     """Parse one metadata check and fail fast when it is malformed."""
     path = f"{field_path}.checks[{index}]"
-
-    if not isinstance(check, dict):
-        raise TypeError(f"{path} must be dict")
-
-    name = _require_string(check, "name", path)
-    rule = _require_string(check, "rule", path)
-    severity = check.get("severity") or "warning"
-
-    if not isinstance(severity, str):
-        raise TypeError(f"{path}.severity must be string")
-
-    if severity not in ALLOWED_SEVERITIES:
-        raise ValueError(f"{path}.severity must be one of {sorted(ALLOWED_SEVERITIES)}")
-
-    message = check.get("message") or f"Check '{name}' failed for '{field_path}'"
-    if not isinstance(message, str):
-        raise TypeError(f"{path}.message must be string")
+    normalized = normalize_check_metadata(
+        check,
+        path=path,
+        field_path=field_path,
+    )
 
     return {
-        "field": field_path,
-        "name": name,
-        "rule": rule,
-        "severity": severity,
-        "message": message,
+        **normalized,
         "alias": f"chk_{_safe_alias(field_path)}_{index}",
     }
 
 
-def _require_string(check: dict[str, Any], field: str, path: str) -> str:
-    """Return a required non-empty string from a metadata check."""
-    value = check.get(field, "")
-
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{path}.{field} must be non-empty string")
-
-    return value.strip()
-
-
-def _add_is_valid_column(df: DataFrame, checks: list[dict[str, Any]]) -> DataFrame:
+def _add_is_valid_column(df: DataFrame, checks: list[Check]) -> DataFrame:
     """Add is_valid based on all error-severity checks."""
     if "is_valid" in df.columns:
         raise ValueError(
@@ -192,16 +162,10 @@ def _add_is_valid_column(df: DataFrame, checks: list[dict[str, Any]]) -> DataFra
     if not error_checks:
         return df.withColumn("is_valid", F.lit(True))
 
-    first_check, *remaining_checks = error_checks
-    is_valid = F.coalesce(F.expr(first_check["rule"]).cast("boolean"), F.lit(False))
-    for check in remaining_checks:
-        rule = F.coalesce(F.expr(check["rule"]).cast("boolean"), F.lit(False))
-        is_valid = is_valid & rule
-
-    return df.withColumn("is_valid", is_valid)
+    return df.withColumn("is_valid", _all_checks_pass(error_checks))
 
 
-def _validate_check_rules(df: DataFrame, checks: list[dict[str, Any]]) -> None:
+def _validate_check_rules(df: DataFrame, checks: list[Check]) -> None:
     """Fail fast on SQL rules that Spark cannot resolve without running a job."""
     for check in checks:
         rule = check["rule"]
@@ -218,7 +182,7 @@ def _validate_check_rules(df: DataFrame, checks: list[dict[str, Any]]) -> None:
             ) from exc
 
 
-def _build_checks_summary(df: DataFrame, checks: list[dict[str, Any]]) -> DataFrame:
+def _build_checks_summary(df: DataFrame, checks: list[Check]) -> DataFrame:
     """Build a compact summary DataFrame for declared checks."""
     if not checks:
         return _empty_summary_df(df.sparkSession)
@@ -231,20 +195,47 @@ def _build_checks_summary(df: DataFrame, checks: list[dict[str, Any]]) -> DataFr
 
 def _build_summary_single_batch(
     df: DataFrame,
-    checks: list[dict[str, Any]],
+    checks: list[Check],
 ) -> DataFrame:
     """Compute failed counts for a single batch of checks."""
-    check_exprs = []
-    for check in checks:
-        rule = F.coalesce(F.expr(check["rule"]).cast("boolean"), F.lit(False))
-        check_exprs.append(F.when(~rule, 1).otherwise(0).alias(check["alias"]))
+    df_with_flags = df.select("*", *[_failed_flag(check) for check in checks])
+    counts_row = df_with_flags.agg(*[_failed_count(check) for check in checks])
+    counts_long = _counts_row_to_long(counts_row, checks)
 
-    df_with_flags = df.select("*", *check_exprs)
-    agg_exprs = [F.sum(check["alias"]).alias(check["alias"]) for check in checks]
-    counts_row = df_with_flags.agg(*agg_exprs)
+    return _join_with_metadata_python(df.sparkSession, checks, counts_long)
 
+
+def _all_checks_pass(checks: list[Check]) -> Any:
+    """Return the combined boolean expression for error-severity checks."""
+    first_check, *remaining_checks = checks
+    is_valid = _check_rule(first_check)
+    for check in remaining_checks:
+        is_valid = is_valid & _check_rule(check)
+    return is_valid
+
+
+def _check_rule(check: Check) -> Any:
+    """Return one check rule as a null-safe boolean Spark expression."""
+    return F.coalesce(F.expr(check["rule"]).cast("boolean"), F.lit(False))
+
+
+def _failed_flag(check: Check) -> Any:
+    """Return a temporary flag column where failed records are marked as 1."""
+    return F.when(~_check_rule(check), 1).otherwise(0).alias(check["alias"])
+
+
+def _failed_count(check: Check) -> Any:
+    """Return the aggregate failed-count expression for one check."""
+    return F.sum(check["alias"]).alias(check["alias"])
+
+
+def _counts_row_to_long(
+    counts_row: DataFrame,
+    checks: list[Check],
+) -> DataFrame:
+    """Convert one wide aggregate row into alias/failed_count rows."""
     aliases = [check["alias"] for check in checks]
-    counts_long = counts_row.select(
+    return counts_row.select(
         F.explode(
             F.arrays_zip(
                 F.array(*[F.lit(alias) for alias in aliases]).alias("alias"),
@@ -256,12 +247,10 @@ def _build_summary_single_batch(
         F.col("data.failed_count").cast("long").alias("failed_count"),
     )
 
-    return _join_with_metadata_python(df.sparkSession, checks, counts_long)
-
 
 def _join_with_metadata_python(
     spark: SparkSession,
-    checks: list[dict[str, Any]],
+    checks: list[Check],
     counts_df: DataFrame,
 ) -> DataFrame:
     """Join small check metadata with aggregated failed counts."""
@@ -283,23 +272,11 @@ def _join_with_metadata_python(
     return spark.createDataFrame(result_rows)
 
 
-def _build_summary_batched(df: DataFrame, checks: list[dict[str, Any]]) -> DataFrame:
+def _build_summary_batched(df: DataFrame, checks: list[Check]) -> DataFrame:
     """Compute validation summary in batches to limit expression size."""
-    logger.info(
-        "Processing %s checks in batches of %s",
-        len(checks),
-        MAX_CHECKS_PER_BATCH,
-    )
-
     summaries = []
-    total_batches = (len(checks) - 1) // MAX_CHECKS_PER_BATCH + 1
     for index in range(0, len(checks), MAX_CHECKS_PER_BATCH):
         batch = checks[index : index + MAX_CHECKS_PER_BATCH]
-        logger.info(
-            "Processing validation batch %s/%s",
-            index // MAX_CHECKS_PER_BATCH + 1,
-            total_batches,
-        )
         summaries.append(_build_summary_single_batch(df, batch))
 
     return reduce(lambda left, right: left.union(right), summaries)

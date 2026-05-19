@@ -8,6 +8,15 @@ from typing import Any, cast
 import pytest
 from pyspark.sql import SparkSession
 
+from etl_framework.infra.observability import reset_observability_sink
+
+
+@pytest.fixture(autouse=True)
+def runtime_log_sink() -> Iterator[None]:
+    reset_observability_sink()
+    yield
+    reset_observability_sink()
+
 
 @pytest.fixture(scope="session")
 def spark() -> Iterator[SparkSession]:

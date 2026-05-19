@@ -41,7 +41,7 @@ class CountingExtract(Extract):
             "id int, name string",
         )
 
-    def _check(
+    def _custom_check(
         self,
         df: DataFrame,
         spark: SparkSession,
@@ -70,7 +70,7 @@ class CountingTransform(Transform):
         self.transform_input_count = df.count()
         return df
 
-    def _validate(
+    def _custom_validate(
         self,
         df: DataFrame,
         spark: SparkSession,

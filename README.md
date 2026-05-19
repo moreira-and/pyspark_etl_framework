@@ -24,13 +24,13 @@ O foco real da v0.1 esta em:
 - injetar `SparkSession`, `EtlRunConfig` e `EtlExecutionContext`;
 - executar `auto_check` da origem com `source_struct`;
 - executar `auto_validate` do resultado com `target_struct`;
-- registrar logs tecnicos por etapa;
+- registrar logs tecnicos por etapa via decorators gerenciados pelo runtime;
 - propagar erros gerenciados com `pipeline_name`, `run_id` e etapa;
 - oferecer `dry_run` para pular a escrita durante desenvolvimento.
 
 A v0.1 ainda nao entrega load seguro, idempotencia, rollback, transacao,
-quarantine persistente ou certificacao real do destino. Esses pontos ficam para
-pipelines concretas ou para a v0.2.
+quarantine persistente ou certificacao real do destino. Esses pontos ficam fora
+do core e dependem de revisao da pipeline concreta.
 
 ## O Que O Junior Implementa
 
@@ -56,7 +56,8 @@ automaticamente a partir de `source_struct` e `target_struct`.
 
 `Extract.run()` executa `_run_extract()`, valida que `_extract()` retornou um
 `DataFrame`, executa `_run_check()`, aplica `config.source_struct` e so entao
-chama `_custom_check()`.
+chama `_custom_check()`. Com `dry_run=True`, o proprio contrato de extract aplica
+`dry_run_limit` antes de entregar o `DataFrame` para `Transform.run()`.
 
 `Transform.run()` executa `_run_transform()`, valida que `_transform()` retornou
 um `DataFrame`, executa `_run_validate()`, aplica `config.target_struct` e so
@@ -94,7 +95,7 @@ Ela nao garante:
 - certificacao lendo o destino real;
 - engine completa de qualidade de dados;
 - observabilidade externa;
-- compatibilidade produtiva irrestrita para milhoes de linhas.
+- suporte produtivo irrestrito para milhoes de linhas.
 
 Essas limitacoes estao detalhadas em
 [docs/v0.1-known-limitations.md](docs/v0.1-known-limitations.md).
@@ -135,17 +136,9 @@ Detalhes de teste ficam em
   checklist obrigatorio antes de qualquer `Load` concreto com `dry_run=False`.
 - [docs/operation/spark-cost-and-benchmark.md](docs/operation/spark-cost-and-benchmark.md):
   custo Spark conhecido e benchmark minimo por pipeline concreta.
-- [docs/roadmap/v0.2.md](docs/roadmap/v0.2.md): itens futuros, separados da
-  realidade atual.
-- [docs/adr/0001-defer-safe-load-to-v0.2.md](docs/adr/0001-defer-safe-load-to-v0.2.md):
-  decisao de adiar load seguro.
 - [docs/development/testing.md](docs/development/testing.md): comandos de
   validacao local e CI.
 - [CHANGELOG.md](CHANGELOG.md): historico de mudancas.
-
-Prompts em `prompts/_v0.1/` sao insumos internos de auditoria e governanca.
-Eles devem ser lidos contra `promessas.md`; nao substituem o contrato ativo da
-v0.1.
 
 ## Licenca
 

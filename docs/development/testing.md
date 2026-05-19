@@ -44,8 +44,6 @@ poetry run pytest --cov=etl_framework --cov-report=term-missing
 - validacao de metadata de checks;
 - logs e erros sem payload sensivel obvio;
 - helpers opcionais em `etl_framework.utils`.
-- separacao entre o gate contratual v0.1 e exemplos marcados como
-  `v02_example`.
 
 ## O Que Os Testes Do Framework Nao Provam
 
@@ -69,19 +67,10 @@ Cada pipeline concreta ainda precisa testar:
 O gate contratual da v0.1 e:
 
 ```bash
-poetry run pytest --cov=etl_framework --cov-report=term-missing -m "not v02_example"
+poetry run pytest --cov=etl_framework --cov-report=term-missing
 ```
 
-Esse comando valida o framework prometido na v0.1. Exemplos marcados com
-`v02_example` continuam executaveis, mas demonstram comportamento de pipeline
-concreta ou roadmap v0.2; eles nao tornam `SafeLoad`, rollback, retry seguro ou
-idempotencia automatica parte do contrato v0.1.
-
-Para executar tambem os exemplos futuros:
-
-```bash
-poetry run pytest -m "v02_example"
-```
+Esse comando valida o framework prometido na v0.1.
 
 ## Marcadores
 
@@ -93,13 +82,6 @@ Testes que exercitam uma pipeline Spark local completa devem usar o marcador:
 
 O marcador existe para deixar claro quando um teste depende de Spark local e
 pode ser mais lento que testes unitarios puros.
-
-Testes que demonstram comportamento de pipeline concreta ou roadmap v0.2 devem
-usar tambem:
-
-```python
-pytestmark = [pytest.mark.integration, pytest.mark.v02_example]
-```
 
 ## Custo Spark E Benchmark
 

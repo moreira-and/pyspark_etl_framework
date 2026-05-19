@@ -161,4 +161,3 @@ um check SQL como `campo IS NOT NULL`.
 - [docs/v0.1-contract.md](docs/v0.1-contract.md)
 - [docs/v0.1-known-limitations.md](docs/v0.1-known-limitations.md)
 - [docs/operation/load-readiness-checklist.md](docs/operation/load-readiness-checklist.md)
-- [docs/roadmap/v0.2.md](docs/roadmap/v0.2.md)

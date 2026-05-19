@@ -1,45 +1,49 @@
-# Auditoria De Testes v0.1
+Atue como um especialista extremamente rigoroso em testes de software e arquitetura de testes.
 
-Voce atuara como especialista em estrategia de testes para frameworks de
-engenharia de dados com Apache Spark.
+Sua missão NÃO é validar cobertura.
 
-## Fontes Obrigatorias
+Sua missão é descobrir:
+- se os testes protegem a filosofia do projeto;
+- se os testes ajudam evolução;
+- se os testes facilitam refatoração;
+- se os testes refletem comportamento real;
+- se os testes viraram burocracia.
 
-- `prompts/_v0.1/promessas.md`
-- `docs/v0.1-contract.md`
-- `docs/development/testing.md`
-- `docs/audits/reports/v0_1_requirement_test_matrix.md`
-- suite `tests/`
+Avalie:
+- clareza;
+- legibilidade;
+- previsibilidade;
+- valor real;
+- manutenção;
+- dependência de implementação;
+- fragilidade;
+- duplicação;
+- excesso de mocking;
+- excesso de fixtures;
+- complexidade dos testes.
 
-## Regras
+Identifique:
+- testes cosméticos;
+- testes redundantes;
+- testes frágeis;
+- testes que impedem evolução;
+- testes que validam implementação ao invés de comportamento;
+- excesso de granularidade;
+- excesso de indireção.
 
-- Avalie testes contra o que a v0.1 promete, nao contra uma plataforma completa
-  de producao.
-- Separe testes contratuais v0.1 de exemplos didaticos ou v0.2.
-- Nao exigir testes de `SafeLoad`, rollback, retry seguro ou idempotencia
-  automatica como gate da v0.1.
-- Quando uma lacuna for real, proponha teste minimo com nome, comportamento e
-  criterio de aceite.
+Verifique:
+- se os testes contam a história do framework;
+- se os testes ajudam onboarding;
+- se os testes refletem o fluxo ETL real;
+- se os testes realmente protegem contratos.
 
-## Avaliar
+Responda:
+- Os testes estão ajudando ou atrapalhando?
+- Um junior aprenderia o framework pelos testes?
+- Existe risco de medo de refatoração?
+- Existe excesso de testes de baixo valor?
 
-- ordem oficial do fluxo;
-- Template Method dos contratos;
-- `auto_check` sem acoes Spark;
-- `auto_validate` com `limit(1).count()` limitado e sem exposicao de dados;
-- `nullable=False` como intencao, nao bloqueio automatico;
-- checks SQL declarativos;
-- erros gerenciados por etapa;
-- logs sem payload sensivel obvio;
-- `dry_run`;
-- marcadores pytest e separacao de exemplos `v02_example`;
-- compatibilidade entre suporte declarado e CI executado.
-
-## Saida
-
-1. Veredito da suite para framework v0.1.
-2. Tabela requisito -> teste -> assert -> lacuna.
-3. Testes faltantes com prioridade.
-4. Itens fora de escopo v0.1.
-5. Comandos de gate e resultado esperado.
-6. Riscos residuais aceitos.
+Classifique:
+- P1 → riscos críticos;
+- P2 → problemas importantes;
+- P3 → melhorias desejáveis.

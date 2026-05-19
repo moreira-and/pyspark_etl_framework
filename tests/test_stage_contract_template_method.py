@@ -72,6 +72,14 @@ def event_names(handler: CapturingHandler) -> list[str]:
     return [str(record.msg["event"]) for record in handler.records]
 
 
+def event_payloads(handler: CapturingHandler) -> list[dict[str, object]]:
+    payloads = []
+    for record in handler.records:
+        assert isinstance(record.msg, dict)
+        payloads.append(record.msg)
+    return payloads
+
+
 class TemplateExtract(Extract):
     def __init__(
         self,
@@ -256,18 +264,24 @@ def test_load_run_should_skip_real_load_when_dry_run_is_enabled(
     load.run(
         df=df,
         spark=spark,
-        config=config(dry_run=True),
+        config=config(dry_run=True, dry_run_limit=7, dry_run_show_rows=0),
         context=context(),
     )
 
     # Assert
     assert events == []
-    assert event_names(handler) == [
+    payloads = event_payloads(handler)
+    assert [payload["event"] for payload in payloads] == [
         "load_started",
-        "dry_run_load_skipped",
         "dry_run_evidence",
         "dry_run_load_completed",
     ]
+    assert payloads[1]["stage"] == "load"
+    assert payloads[1]["status"] == "skipped"
+    assert payloads[1]["mode"] == "dry_run"
+    assert payloads[1]["dry_run"] is True
+    assert payloads[1]["dry_run_limit"] == 7
+    assert payloads[1]["dry_run_show_rows"] == 0
 
 
 def test_load_run_should_execute_load_then_certify_when_dry_run_is_disabled(

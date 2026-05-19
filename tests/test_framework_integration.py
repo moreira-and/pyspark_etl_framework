@@ -56,7 +56,7 @@ class InlineExtract(Extract):
         self.events.append("extract")
         return spark.createDataFrame([(1, "ana"), (2, "bruno")], SOURCE_STRUCT)
 
-    def _check(
+    def _custom_check(
         self,
         df: DataFrame,
         spark: SparkSession,
@@ -81,7 +81,7 @@ class InlineTransform(Transform):
         self.events.append("transform")
         return df.withColumn("name_upper", F.upper("name"))
 
-    def _validate(
+    def _custom_validate(
         self,
         df: DataFrame,
         spark: SparkSession,
@@ -150,40 +150,6 @@ def test_inline_framework_integration_runs_full_contract(
     # Assert
     assert events == ["extract", "check", "transform", "validate", "load", "certify"]
     assert result.columns == ["id", "name", "name_upper", "is_valid"]
-    assert load.loaded_rows == [
-        (1, "ana", "ANA", True),
-        (2, "bruno", "BRUNO", True),
-    ]
-
-
-def test_spark_integration_smoke_finishes_with_inline_dataframe(
-    spark: SparkSession,
-) -> None:
-    # Arrange
-    events: list[str] = []
-    load = InlineLoad(events)
-    pipeline = Pipeline(
-        spark=spark,
-        config=EtlRunConfig(
-            pipeline_name="inline_smoke",
-            target_schema="test",
-            target_table="people_smoke",
-            target_path="memory://people_smoke",
-            target_key=("id",),
-            source_struct=SOURCE_STRUCT,
-            target_struct=TARGET_STRUCT,
-        ),
-        extract=InlineExtract(events),
-        transform=InlineTransform(events),
-        load=load,
-    )
-
-    # Act
-    result = pipeline.run()
-
-    # Assert
-    assert events == ["extract", "check", "transform", "validate", "load", "certify"]
-    assert result.schema["id"].dataType == IntegerType()
     assert load.loaded_rows == [
         (1, "ana", "ANA", True),
         (2, "bruno", "BRUNO", True),
