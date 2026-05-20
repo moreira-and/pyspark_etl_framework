@@ -12,7 +12,7 @@ from pyspark.sql.types import (
 )
 
 from etl_framework import EtlRunConfig, Extract, Load, Pipeline, Transform
-from etl_framework.infra.errors import CheckError, ValidateError
+from etl_framework.infra.errors import CheckError, PreflightError, ValidateError
 from etl_framework.models.context import EtlExecutionContext
 from etl_framework.utils.auto_quality import auto_check_source, auto_validate_target
 
@@ -213,7 +213,8 @@ def test_auto_validate_uses_limited_count_without_exposing_records(
 
     def spy_count(self: DataFrame) -> int:
         observed_calls.append("count()")
-        assert id(self) in limited_dataframes
+        if observed_calls == ["limit(1)", "count()"]:
+            assert id(self) in limited_dataframes
         return original_count(self)
 
     def fail_exposure(self: DataFrame, *args: object, **kwargs: object) -> object:
@@ -222,15 +223,15 @@ def test_auto_validate_uses_limited_count_without_exposing_records(
 
     monkeypatch.setattr(DataFrame, "limit", spy_limit)
     monkeypatch.setattr(DataFrame, "count", spy_count)
-    monkeypatch.setattr(DataFrame, "collect", fail_exposure)
     monkeypatch.setattr(DataFrame, "show", fail_exposure)
     monkeypatch.setattr(DataFrame, "toLocalIterator", fail_exposure)
 
     # Act / Assert
-    with pytest.raises(ValueError, match="Invalid records"):
+    with pytest.raises(ValueError, match="invalid_count=1"):
         auto_validate_target(df, guarded_target_struct)
 
-    assert observed_calls == ["limit(1)", "count()"]
+    assert observed_calls[:2] == ["limit(1)", "count()"]
+    assert "expose" not in observed_calls
 
 
 def test_nullable_false_does_not_block_null_without_explicit_check(
@@ -282,13 +283,18 @@ def test_nullable_false_requires_explicit_sql_check_to_block_null(
         auto_validate_target(df, guarded_struct)
 
 
-def test_auto_check_fails_when_source_struct_is_missing(spark: SparkSession) -> None:
+def test_pipeline_preflight_fails_when_source_struct_is_missing(
+    spark: SparkSession,
+) -> None:
     # Arrange
-    job, _, _, _ = pipeline(spark, run_config=config(source_struct=None))
+    job, _, extract, _ = pipeline(spark, run_config=config(source_struct=None))
 
     # Act / Assert
-    with pytest.raises(CheckError, match="run-auto"):
+    with pytest.raises(PreflightError, match="source_struct") as exc_info:
         job.run()
+    assert exc_info.value.run_id == "run-auto"
+    assert exc_info.value.stage == "preflight"
+    assert extract.called is False
 
 
 def test_auto_check_fails_when_source_column_is_missing(spark: SparkSession) -> None:
@@ -327,15 +333,18 @@ def test_auto_check_warns_for_extra_source_column_in_strict_mode(
         job.run()
 
 
-def test_auto_validate_fails_when_target_struct_is_missing(
+def test_pipeline_preflight_fails_when_target_struct_is_missing(
     spark: SparkSession,
 ) -> None:
     # Arrange
-    job, _, _, _ = pipeline(spark, run_config=config(target_struct=None))
+    job, _, extract, _ = pipeline(spark, run_config=config(target_struct=None))
 
     # Act / Assert
-    with pytest.raises(ValidateError, match="run-auto"):
+    with pytest.raises(PreflightError, match="target_struct") as exc_info:
         job.run()
+    assert exc_info.value.run_id == "run-auto"
+    assert exc_info.value.stage == "preflight"
+    assert extract.called is False
 
 
 def test_auto_validate_fails_when_target_column_is_missing(
@@ -377,7 +386,7 @@ def test_auto_validate_treats_existing_is_valid_null_as_invalid(
     )
 
     # Act / Assert
-    with pytest.raises(ValidateError, match="Invalid records") as exc_info:
+    with pytest.raises(ValidateError, match="invalid_count=1") as exc_info:
         job.run()
     assert exc_info.value.run_id == "run-auto"
 
@@ -420,12 +429,13 @@ def test_auto_validate_blocks_invalid_target_record_before_load(
     )
 
     # Act / Assert
-    with pytest.raises(ValidateError, match="Invalid records") as exc_info:
+    with pytest.raises(ValidateError, match="invalid_count=1") as exc_info:
         job.run()
 
     assert exc_info.value.pipeline_name == "auto_contract"
     assert exc_info.value.run_id == "run-auto"
     assert exc_info.value.stage == "validate"
+    assert "name_upper.name_upper_required" in str(exc_info.value)
     assert load.loaded is False
     assert load.certified is False
 

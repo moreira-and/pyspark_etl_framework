@@ -23,8 +23,8 @@ O CI atual roda Python `3.11` e Java `17`.
 ## Comandos Oficiais
 
 ```bash
-poetry run python -m black --check --diff etl_framework tests
-poetry run isort --check-only etl_framework tests
+poetry run black --check --no-cache .
+poetry run isort --check-only .
 poetry run pytest --cov=etl_framework --cov-report=term-missing
 ```
 
@@ -41,6 +41,10 @@ poetry run pytest --cov=etl_framework --cov-report=term-missing
 - ausencia de `show` e `collect` automaticos no caminho normal;
 - uso intencional de `limit(1).count()` no `auto_validate` para bloquear
   registros invalidos antes de `load`;
+- diagnostico de invalidos no caminho de falha de `auto_validate`;
+- preflight antes de `_extract`;
+- preservacao default de colunas tecnicas antes de `_load`;
+- opcao explicita para remover colunas tecnicas do `_load`;
 - validacao de metadata de checks;
 - logs e erros sem payload sensivel obvio;
 - helpers opcionais em `etl_framework.utils`.

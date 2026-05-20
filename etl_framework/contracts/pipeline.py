@@ -5,6 +5,7 @@ from pyspark.sql import DataFrame, SparkSession
 from etl_framework.contracts.extract import Extract
 from etl_framework.contracts.load import Load
 from etl_framework.contracts.transform import Transform
+from etl_framework.infra.errors import PreflightError
 from etl_framework.infra.stage import stage
 from etl_framework.models.config import EtlRunConfig
 from etl_framework.models.context import EtlExecutionContext
@@ -43,10 +44,44 @@ class Pipeline:
     @stage("run", emit_summary=True)
     def run(self) -> DataFrame:
         """Run the full official ETL flow and return the final DataFrame."""
+        self._preflight()
         df = self.extract()
         df = self.transform(df)
         self.load(df)
         return df
+
+    def _preflight(self) -> None:
+        """Fail before extraction when the standard v0.1 flow cannot run."""
+        errors: list[str] = []
+
+        if self.config.source_struct is None:
+            errors.append("source_struct is required before extract")
+
+        if self.config.target_struct is None:
+            errors.append("target_struct is required before extract")
+
+        if self.config.target_struct is not None and self.config.target_key:
+            target_columns = {field.name for field in self.config.target_struct.fields}
+            missing_keys = [
+                key for key in self.config.target_key if key not in target_columns
+            ]
+            if missing_keys:
+                errors.append(
+                    "target_key contains columns not present in target_struct: "
+                    f"{missing_keys}"
+                )
+
+        if self.config.dry_run_show_rows > 0 and not self.config.dry_run:
+            errors.append(
+                "dry_run_show_rows can be greater than zero only when dry_run=True"
+            )
+
+        if errors:
+            raise PreflightError(
+                "Preflight failed before extract: " + "; ".join(errors),
+                pipeline_name=self.config.pipeline_name,
+                run_id=self.context.run_id,
+            )
 
     def extract(self) -> DataFrame:
         """Run the extract contract."""

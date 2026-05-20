@@ -19,10 +19,18 @@ O projeto usa SemVer pragmatico:
 - Adiciona guia enxuto de testes em `docs/development/testing.md`.
 - Adiciona checklist de readiness para `Load` concreto e modelo de custo Spark.
 - Documenta que `auto_validate` executa uma acao Spark pequena para bloquear
-  invalidos e que `Load._load` recebe a coluna tecnica `is_valid`.
+  invalidos e que `Load._load` recebe dados com colunas tecnicas por default.
 
 ### Changed
 
+- Adiciona preflight em `Pipeline.run()` antes de acessar a origem.
+- Adiciona `extra_columns_policy` para tornar explicito o tratamento de colunas
+  extras.
+- Melhora diagnostico de invalidos em `auto_validate` no caminho de falha.
+- Mantem colunas tecnicas reservadas antes de chamar `_load` e `_certify` por
+  default.
+- Permite remover colunas tecnicas via `keep_technical_columns=False`.
+- Torna `_certify` opcional para reduzir cerimonia em loads simples.
 - Separa a observabilidade de `load` e `certify` para que falhas de certificacao
   nao sejam registradas como falhas de escrita.
 - Padroniza `Extract`, `Transform` e `Load` como Template Method, com

@@ -1,6 +1,7 @@
 # Runtime-managed Observability
 
-The framework emits runtime-managed observability events through decorators.
+The framework emits runtime-managed best-effort observability events through
+decorators.
 
 Pipeline authors should not emit observability events manually inside ETL
 stages.
@@ -17,7 +18,8 @@ The core framework does not depend on external observability vendors.
 Observability is not a dependency of ETL logic. Operational event emission is a
 cross-cutting runtime responsibility applied automatically through decorators.
 
-The framework is observable by default, but vendor-agnostic by design.
+The framework emits local operational events by default, but delivery is
+best-effort and vendor-agnostic by design.
 
 ## Public API
 
@@ -65,7 +67,8 @@ The main stage decorator emits:
 - operational metrics explicitly stored in `context.metrics`.
 
 Real ETL exceptions continue to propagate. Sink failures do not break the ETL
-execution in v0.1.
+execution in v0.1, so these events must not be treated as guaranteed audit
+delivery.
 
 ## Event Payload
 
@@ -212,6 +215,7 @@ import. If an application wants `.env`, it must load it before calling
 - Real OpenTelemetry, Datadog, Loki, ELK, CloudWatch or Sentry integration.
 - Vendor-specific schemas.
 - Strict mode where observability failure breaks the ETL.
+- Guaranteed delivery or replay of observability events.
 - Pipeline-level logging configuration.
 - Manual logging inside ETL business methods.
 

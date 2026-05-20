@@ -87,6 +87,44 @@ def test_validate_struct_strict_warns_on_extra_columns(
     ]
 
 
+def test_validate_struct_ignores_extra_columns_by_default(
+    spark: SparkSession,
+) -> None:
+    # Arrange
+    df = spark.createDataFrame([(1, "extra")], "id int, source_system string")
+    expected_schema = StructType([StructField("id", IntegerType(), nullable=False)])
+
+    # Act
+    validated_df, _ = validate_struct(df, expected_schema)
+
+    # Assert
+    assert validated_df.columns == ["id", "source_system", "is_valid"]
+
+
+def test_validate_struct_warns_on_extra_columns_when_policy_is_warn(
+    spark: SparkSession,
+) -> None:
+    # Arrange
+    df = spark.createDataFrame([(1, "extra")], "id int, source_system string")
+    expected_schema = StructType([StructField("id", IntegerType(), nullable=False)])
+
+    # Act / Assert
+    with pytest.warns(UserWarning, match="Extra columns not declared"):
+        validate_struct(df, expected_schema, extra_columns_policy="warn")
+
+
+def test_validate_struct_fails_on_extra_columns_when_policy_is_fail(
+    spark: SparkSession,
+) -> None:
+    # Arrange
+    df = spark.createDataFrame([(1, "extra")], "id int, source_system string")
+    expected_schema = StructType([StructField("id", IntegerType(), nullable=False)])
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="Extra columns not declared"):
+        validate_struct(df, expected_schema, extra_columns_policy="fail")
+
+
 def test_warning_severity_does_not_invalidate_record(
     spark: SparkSession,
 ) -> None:

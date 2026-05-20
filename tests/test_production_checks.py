@@ -84,7 +84,7 @@ def test_required_null_check_blocks_invalid_target_record(
         assert_no_invalid_records(validated_df)
 
 
-def test_pipeline_auto_validation_adds_is_valid_before_write(
+def test_pipeline_auto_validation_sends_is_valid_to_load_by_default(
     spark: SparkSession,
 ) -> None:
     # Arrange
@@ -140,6 +140,61 @@ def test_pipeline_auto_validation_adds_is_valid_before_write(
 
     # Assert
     assert load.loaded is True
+
+
+def test_pipeline_can_exclude_is_valid_from_load_when_configured(
+    spark: SparkSession,
+) -> None:
+    # Arrange
+    class InlineExtract(Extract):
+        def _extract(self, spark, config, context):
+            return spark.createDataFrame([(1, "ana")], "id int, name string")
+
+    class JuniorTransform(Transform):
+        def _transform(self, df, spark, config, context):
+            return df
+
+    class TechnicalLoad(Load):
+        def __init__(self) -> None:
+            self.loaded_columns: list[str] = []
+
+        def _load(self, df, spark, config, context):
+            self.loaded_columns = df.columns
+
+    load = TechnicalLoad()
+    config = EtlRunConfig(
+        pipeline_name="exclude_technical_columns",
+        target_schema="silver",
+        target_table="people",
+        target_path="memory://people",
+        target_key=("id",),
+        source_struct=StructType(
+            [
+                StructField("id", IntegerType(), nullable=False),
+                StructField("name", StringType(), nullable=False),
+            ]
+        ),
+        target_struct=StructType(
+            [
+                StructField("id", IntegerType(), nullable=False),
+                StructField("name", StringType(), nullable=False),
+            ]
+        ),
+        keep_technical_columns=False,
+    )
+    pipeline = Pipeline(
+        spark,
+        config,
+        extract=InlineExtract(),
+        transform=JuniorTransform(),
+        load=load,
+    )
+
+    # Act
+    pipeline.run()
+
+    # Assert
+    assert load.loaded_columns == ["id", "name"]
 
 
 def test_target_key_checks_block_nulls_and_duplicates(

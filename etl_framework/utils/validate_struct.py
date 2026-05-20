@@ -20,21 +20,29 @@ def validate_struct(
     schema: StructType,
     compute_summary: bool = False,
     strict: bool = False,
+    extra_columns_policy: str = "ignore",
 ) -> tuple[DataFrame, DataFrame | None]:
     """Validate a DataFrame against a StructType contract.
 
     The function validates expected column names and data types, then executes
     simple declarative checks stored in StructField metadata. Missing columns
-    and incompatible types are errors. Extra columns produce warnings only when
-    strict mode is enabled. Error-severity checks define the generated is_valid
-    technical column. The input DataFrame must not already contain is_valid;
-    this prevents silent overwrite after a previous validation step. Summary
-    calculation is optional because it triggers Spark actions.
+    and incompatible types are errors. Extra columns follow
+    extra_columns_policy: ignore, warn or fail. `strict=True` is a backwards
+    compatible alias for warning on extras. Error-severity checks define the
+    generated is_valid technical column. The input DataFrame must not already
+    contain is_valid; this prevents silent overwrite after a previous
+    validation step. Summary calculation is optional because it triggers Spark
+    actions.
     """
     if df is None or schema is None:
         raise ValueError("DataFrame and schema cannot be None")
 
-    validate_schema(df, schema, strict=strict)
+    validate_schema(
+        df,
+        schema,
+        strict=strict,
+        extra_columns_policy=extra_columns_policy,
+    )
 
     checks = _extract_all_checks(schema)
     _validate_check_rules(df, checks)
@@ -52,6 +60,7 @@ def validate_schema(
     df: DataFrame,
     schema: StructType | None,
     strict: bool = False,
+    extra_columns_policy: str = "ignore",
 ) -> DataFrame:
     """Validate only names and data types, returning the original DataFrame.
 
@@ -61,8 +70,23 @@ def validate_schema(
     if df is None or schema is None:
         raise ValueError("DataFrame and schema cannot be None")
 
-    _validate_schema_match(df, schema, strict=strict)
+    _validate_schema_match(
+        df,
+        schema,
+        strict=strict,
+        extra_columns_policy=extra_columns_policy,
+    )
     return df
+
+
+def summarize_struct_checks(df: DataFrame, schema: StructType) -> DataFrame:
+    """Build failed-count diagnostics for checks declared in a StructType."""
+    if df is None or schema is None:
+        raise ValueError("DataFrame and schema cannot be None")
+
+    checks = _extract_all_checks(schema)
+    _validate_check_rules(df, checks)
+    return _build_checks_summary(df, checks)
 
 
 def _validate_schema_match(
@@ -70,10 +94,15 @@ def _validate_schema_match(
     expected: StructType,
     *,
     strict: bool = False,
+    extra_columns_policy: str = "ignore",
 ) -> None:
-    """Validate expected columns and warn about extras when strict is enabled."""
+    """Validate expected columns and apply the configured extra-column policy."""
     actual = {field.name: field.dataType for field in df.schema.fields}
     expected_columns = {field.name for field in expected.fields}
+    resolved_extra_columns_policy = _resolve_extra_columns_policy(
+        strict=strict,
+        extra_columns_policy=extra_columns_policy,
+    )
 
     errors = []
     for field in expected.fields:
@@ -89,20 +118,39 @@ def _validate_schema_match(
                 f"ERROR: '{field.name}': expected {expected_type}, got {actual_type}"
             )
 
-    if strict:
-        extra_columns = [
-            field.name
-            for field in df.schema.fields
-            if field.name not in expected_columns
-        ]
-        if extra_columns:
-            message = (
-                "WARNING: Extra columns not declared in schema: " f"{extra_columns}"
-            )
+    extra_columns = [
+        field.name for field in df.schema.fields if field.name not in expected_columns
+    ]
+    if extra_columns:
+        message = f"Extra columns not declared in schema: {extra_columns}"
+        if resolved_extra_columns_policy == "warn":
             warnings.warn(message, UserWarning, stacklevel=2)
+        elif resolved_extra_columns_policy == "fail":
+            errors.append(f"ERROR: {message}")
 
     if errors:
         raise ValueError("Schema mismatch:\n  - " + "\n  - ".join(errors))
+
+
+def _resolve_extra_columns_policy(
+    *,
+    strict: bool,
+    extra_columns_policy: str,
+) -> str:
+    """Resolve the explicit extra-column policy with strict_schema compatibility."""
+    if not isinstance(extra_columns_policy, str):
+        raise ValueError("extra_columns_policy must be a string")
+
+    policy = extra_columns_policy.strip().lower()
+    if policy not in {"ignore", "warn", "fail"}:
+        raise ValueError(
+            "extra_columns_policy must be one of ['fail', 'ignore', 'warn']"
+        )
+
+    if strict and policy == "ignore":
+        return "warn"
+
+    return policy
 
 
 def _extract_all_checks(schema: StructType, prefix: str = "") -> list[Check]:

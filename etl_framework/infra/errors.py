@@ -89,6 +89,12 @@ class CertifyError(EtlError):
     default_stage = "certify"
 
 
+class PreflightError(EtlError):
+    """Raised before extraction when a run configuration cannot execute safely."""
+
+    default_stage = "preflight"
+
+
 def ensure_stage_error(
     exc: Exception,
     error_type: type[EtlError],

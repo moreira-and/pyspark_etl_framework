@@ -55,6 +55,7 @@ def test_contract_package_does_not_define_top_level_helper_functions() -> None:
         for node in tree.body:
             assert not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)), path
 
+
 def test_pipeline_does_not_store_logger_attribute() -> None:
     path = Path("etl_framework/contracts/pipeline.py")
     tree = ast.parse(path.read_text(encoding="utf-8"))

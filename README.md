@@ -22,9 +22,10 @@ O foco real da v0.1 esta em:
 
 - padronizar a ordem de execucao;
 - injetar `SparkSession`, `EtlRunConfig` e `EtlExecutionContext`;
+- executar preflight de configuracao antes de acessar a origem;
 - executar `auto_check` da origem com `source_struct`;
 - executar `auto_validate` do resultado com `target_struct`;
-- registrar logs tecnicos por etapa via decorators gerenciados pelo runtime;
+- emitir eventos/logs tecnicos best-effort por etapa via runtime;
 - propagar erros gerenciados com `pipeline_name`, `run_id` e etapa;
 - oferecer `dry_run` para pular a escrita durante desenvolvimento.
 
@@ -41,7 +42,7 @@ Em uma pipeline comum, o desenvolvedor implementa:
 | `Extract` | `_extract` | Ler a origem e retornar um `DataFrame`. |
 | `Transform` | `_transform` | Aplicar transformacoes de negocio. |
 | `Load` | `_load` | Escrever no destino escolhido pela pipeline. |
-| `Load` | `_certify` | Registrar uma evidencia simples apos a carga. |
+| `Load` | `_certify` | Opcionalmente registrar uma evidencia simples apos a carga. |
 
 Hooks opcionais existem para casos especificos:
 
@@ -54,6 +55,10 @@ automaticamente a partir de `source_struct` e `target_struct`.
 
 ## O Que O Framework Automatiza
 
+`Pipeline.run()` executa um preflight leve antes de `_extract`. Sem
+`source_struct` ou `target_struct`, a execucao falha cedo com `PreflightError`
+e nao acessa a origem.
+
 `Extract.run()` executa `_run_extract()`, valida que `_extract()` retornou um
 `DataFrame`, executa `_run_check()`, aplica `config.source_struct` e so entao
 chama `_custom_check()`. Com `dry_run=True`, o proprio contrato de extract aplica
@@ -63,9 +68,12 @@ chama `_custom_check()`. Com `dry_run=True`, o proprio contrato de extract aplic
 um `DataFrame`, executa `_run_validate()`, aplica `config.target_struct` e so
 entao chama `_custom_validate()`.
 
-`Load.run()` valida que recebeu um `DataFrame`. Com `dry_run=True`, produz
-evidencia tecnica de dry-run e nao chama `_load()` nem `_certify()`. Com
-`dry_run=False`, executa `_run_load()` e depois `_run_certify()`.
+`Load.run()` valida que recebeu um `DataFrame` e, por padrao, entrega tambem as
+colunas tecnicas do framework aos hooks concretos. Se o destino nao deve
+receber essas colunas, use `keep_technical_columns=False`. Com
+`dry_run=True`, produz evidencia tecnica de dry-run e nao chama `_load()` nem
+`_certify()`. Com `dry_run=False`, executa `_run_load()` e depois
+`_run_certify()`.
 
 `auto_validate` adiciona a coluna tecnica `is_valid` e bloqueia registros
 invalidos antes de `load`. Regras declarativas podem ser definidas em
@@ -76,9 +84,13 @@ Para bloquear invalidos, `auto_validate` executa uma acao Spark pequena
 da v0.1; ela evita escrita de registros invalidos, mas deve ser considerada em
 pipelines de grande volume.
 
-`Load._load` recebe o `DataFrame` ja validado, incluindo a coluna tecnica
-`is_valid`. Se o destino nao aceitar essa coluna, a propria implementacao de
-`Load` deve projetar apenas as colunas de negocio antes da escrita.
+Quando encontra invalidos, `auto_validate` calcula diagnostico minimo no caminho
+de falha: quantidade de registros invalidos e checks declarativos com falha.
+Ele nao coleta nem mostra linhas de dados por padrao.
+
+`Load._load` recebe o `DataFrame` ja validado contendo colunas tecnicas, como
+`is_valid`, por default. Para entregar apenas colunas de negocio ao `_load`,
+configure `keep_technical_columns=False`.
 
 ## O Que A v0.1 Nao Garante
 
@@ -95,6 +107,7 @@ Ela nao garante:
 - certificacao lendo o destino real;
 - engine completa de qualidade de dados;
 - observabilidade externa;
+- entrega garantida de eventos de observabilidade;
 - suporte produtivo irrestrito para milhoes de linhas.
 
 Essas limitacoes estao detalhadas em
@@ -118,8 +131,8 @@ poetry install --with dev
 Comandos oficiais:
 
 ```bash
-poetry run python -m black --check --diff etl_framework tests
-poetry run isort --check-only etl_framework tests
+poetry run black --check --no-cache .
+poetry run isort --check-only .
 poetry run pytest --cov=etl_framework --cov-report=term-missing
 ```
 

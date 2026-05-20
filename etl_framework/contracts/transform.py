@@ -71,6 +71,7 @@ class Transform(ABC):
             df,
             config.target_struct,
             strict=config.strict_schema,
+            extra_columns_policy=config.extra_columns_policy,
         )
         validated_df = self._custom_validate(validated_df, spark, config, context)
         return require_dataframe(validated_df, stage="validate")

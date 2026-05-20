@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from etl_framework.models.config import EtlRunConfig
+
+
 def dry_run_extract_metadata(
     config: EtlRunConfig,
 ) -> dict[str, object]:

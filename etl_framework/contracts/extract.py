@@ -77,6 +77,7 @@ class Extract(ABC):
             df,
             config.source_struct,
             strict=config.strict_schema,
+            extra_columns_policy=config.extra_columns_policy,
         )
         checked_df = self._custom_check(checked_df, spark, config, context)
         return require_dataframe(checked_df, stage="check")

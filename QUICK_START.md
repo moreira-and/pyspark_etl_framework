@@ -73,12 +73,8 @@ class QuickTransform(Transform):
 
 class QuickLoad(Load):
     def _load(self, df, spark, config, context):
-        # O DataFrame chega validado e inclui a coluna tecnica is_valid.
-        # Este exemplo didatico grava tudo; loads reais podem projetar colunas.
+        # Por default, o DataFrame chega validado e inclui is_valid.
         df.write.mode(config.write_mode or "overwrite").parquet(config.target_path)
-
-    def _certify(self, df, spark, config, context):
-        return None
 
 
 spark = SparkSession.builder.appName("quick-start").getOrCreate()
@@ -116,14 +112,15 @@ poetry run python quick_start_pipeline.py
 
 Com `dry_run=True`, o framework:
 
-1. executa `QuickExtract._extract`;
-2. roda `auto_check` com `source_struct`;
-3. aplica `dry_run_limit`;
-4. executa `QuickTransform._transform`;
-5. roda `auto_validate` com `target_struct`;
-6. `Load.run()` registra evidencia tecnica de dry-run;
-7. pula `_load` e `_certify`;
-8. retorna o `DataFrame` final.
+1. executa preflight de configuracao;
+2. executa `QuickExtract._extract`;
+3. roda `auto_check` com `source_struct`;
+4. aplica `dry_run_limit`;
+5. executa `QuickTransform._transform`;
+6. roda `auto_validate` com `target_struct`;
+7. `Load.run()` registra evidencia tecnica de dry-run;
+8. pula `_load` e `_certify`;
+9. retorna o `DataFrame` final com `is_valid` para inspecao tecnica.
 
 No caminho normal, `auto_validate` executa `limit(1).count()` para impedir que
 registros com `is_valid=False` cheguem ao `Load`.
@@ -150,7 +147,10 @@ Depois que o exemplo rodar:
 3. Coloque regras de negocio em `QuickTransform._transform`.
 4. Mantenha `target_struct` alinhado ao resultado transformado.
 5. Adicione checks SQL simples em `target_struct` quando quiser bloquear dados.
-6. Substitua `QuickLoad` por uma estrategia revisada antes de qualquer uso real
+6. Use `extra_columns_policy="fail"` quando colunas extras precisarem bloquear.
+7. Use `keep_technical_columns=False` quando o destino nao deve persistir
+   colunas tecnicas como `is_valid`.
+8. Substitua `QuickLoad` por uma estrategia revisada antes de qualquer uso real
    com `dry_run=False`.
 
 `nullable=False` no `StructField` documenta intencao de schema, mas nao substitui

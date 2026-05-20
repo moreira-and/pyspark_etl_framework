@@ -73,6 +73,51 @@ def test_config_rejects_show_rows_in_production_mode() -> None:
         make_config(dry_run=False, dry_run_show_rows=1)
 
 
+def test_config_defaults_to_keeping_technical_columns() -> None:
+    # Arrange / Act
+    config = make_config()
+
+    # Assert
+    assert config.keep_technical_columns is True
+
+
+def test_config_allows_dropping_technical_columns() -> None:
+    # Arrange / Act
+    config = make_config(keep_technical_columns=False)
+
+    # Assert
+    assert config.keep_technical_columns is False
+
+
+def test_config_rejects_non_boolean_keep_technical_columns_flag() -> None:
+    # Arrange / Act / Assert
+    with pytest.raises(ValueError, match="keep_technical_columns"):
+        make_config(keep_technical_columns="no")
+
+
+@pytest.mark.parametrize("policy", ["ignore", "warn", "fail"])
+def test_config_accepts_extra_columns_policy(policy: str) -> None:
+    # Arrange / Act
+    config = make_config(extra_columns_policy=policy)
+
+    # Assert
+    assert config.extra_columns_policy == policy
+
+
+def test_strict_schema_maps_to_warn_extra_columns_policy_for_compatibility() -> None:
+    # Arrange / Act
+    config = make_config(strict_schema=True)
+
+    # Assert
+    assert config.extra_columns_policy == "warn"
+
+
+def test_config_rejects_invalid_extra_columns_policy() -> None:
+    # Arrange / Act / Assert
+    with pytest.raises(ValueError, match="extra_columns_policy"):
+        make_config(extra_columns_policy="strict")
+
+
 @pytest.mark.parametrize("field", ["start_window", "end_window"])
 @pytest.mark.parametrize("invalid_window", ["", "   ", 20260101])
 def test_config_rejects_invalid_window_values(

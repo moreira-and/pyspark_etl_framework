@@ -64,7 +64,7 @@ class Load(ABC):
         context: EtlExecutionContext,
     ) -> None:
         """Execute destination loading as its own observable stage."""
-        load_df = require_dataframe(df, stage="load")
+        load_df = self._persistable_df(df, config=config)
         self._load(load_df, spark, config, context)
 
     @stage(
@@ -88,7 +88,7 @@ class Load(ABC):
         context: EtlExecutionContext,
     ) -> None:
         """Produce dry-run evidence without calling real load or certify."""
-        dry_run_df = require_dataframe(df, stage="load")
+        dry_run_df = self._persistable_df(df, config=config)
         if config.dry_run_show_rows > 0:
             self._show_dry_run_sample(
                 dry_run_df,
@@ -123,7 +123,21 @@ class Load(ABC):
         context: EtlExecutionContext,
     ) -> None:
         """Execute destination certification after a successful load."""
-        self._certify(df, spark, config, context)
+        certify_df = self._persistable_df(df, config=config)
+        self._certify(certify_df, spark, config, context)
+
+    def _persistable_df(self, df: DataFrame, *, config: EtlRunConfig) -> DataFrame:
+        """Return the DataFrame shape configured for load/certify hooks."""
+        checked_df = require_dataframe(df, stage="load")
+        if config.keep_technical_columns:
+            return checked_df
+
+        business_columns = [
+            column
+            for column in checked_df.columns
+            if column.lower() not in config.TECHNICAL_COLUMNS
+        ]
+        return checked_df.select(*business_columns)
 
     @abstractmethod
     def _load(
@@ -136,7 +150,6 @@ class Load(ABC):
         """Implement destination-specific loading in a concrete pipeline."""
         raise NotImplementedError
 
-    @abstractmethod
     def _certify(
         self,
         df: DataFrame,
@@ -144,5 +157,5 @@ class Load(ABC):
         config: EtlRunConfig,
         context: EtlExecutionContext,
     ) -> None:
-        """Implement final evidence collection after a successful load."""
-        raise NotImplementedError
+        """Optionally implement final evidence collection after a successful load."""
+        return None

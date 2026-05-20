@@ -140,6 +140,8 @@ class TemplateTransform(Transform):
 class TemplateLoad(Load):
     def __init__(self, events: list[str]) -> None:
         self.events = events
+        self.loaded_columns: list[str] = []
+        self.certified_columns: list[str] = []
 
     def _load(
         self,
@@ -149,6 +151,7 @@ class TemplateLoad(Load):
         context: EtlExecutionContext,
     ) -> None:
         self.events.append("load")
+        self.loaded_columns = df.columns
 
     def _certify(
         self,
@@ -158,6 +161,21 @@ class TemplateLoad(Load):
         context: EtlExecutionContext,
     ) -> None:
         self.events.append("certify")
+        self.certified_columns = df.columns
+
+
+class LoadWithoutCertify(Load):
+    def __init__(self, events: list[str]) -> None:
+        self.events = events
+
+    def _load(
+        self,
+        df: DataFrame,
+        spark: SparkSession,
+        config: EtlRunConfig,
+        context: EtlExecutionContext,
+    ) -> None:
+        self.events.append("load")
 
 
 def test_extract_run_should_execute_extract_then_source_struct_check_automatically(
@@ -300,12 +318,38 @@ def test_load_run_should_execute_load_then_certify_when_dry_run_is_disabled(
 
     # Assert
     assert events == ["load", "certify"]
+    assert load.loaded_columns == ["id", "name_upper", "is_valid"]
+    assert load.certified_columns == ["id", "name_upper", "is_valid"]
     assert event_names(handler) == [
         "load_started",
         "load_succeeded",
         "certify_started",
         "certify_succeeded",
     ]
+
+
+def test_load_run_can_exclude_technical_columns_when_configured(
+    spark: SparkSession,
+) -> None:
+    # Arrange
+    events: list[str] = []
+    load = TemplateLoad(events)
+    df = spark.createDataFrame(
+        [(1, "ANA", True)], "id int, name_upper string, is_valid boolean"
+    )
+
+    # Act
+    load.run(
+        df=df,
+        spark=spark,
+        config=config(keep_technical_columns=False),
+        context=context(),
+    )
+
+    # Assert
+    assert events == ["load", "certify"]
+    assert load.loaded_columns == ["id", "name_upper"]
+    assert load.certified_columns == ["id", "name_upper"]
 
 
 def test_load_run_should_raise_managed_error_when_input_is_not_dataframe(
@@ -329,3 +373,20 @@ def test_load_run_should_raise_managed_error_when_input_is_not_dataframe(
     assert exc_info.value.run_id == RUN_ID
     assert exc_info.value.stage == "load"
     assert events == []
+
+
+def test_load_certify_hook_is_optional_when_no_evidence_is_needed(
+    spark: SparkSession,
+) -> None:
+    # Arrange
+    events: list[str] = []
+    load = LoadWithoutCertify(events)
+    df = spark.createDataFrame(
+        [(1, "ANA", True)], "id int, name_upper string, is_valid boolean"
+    )
+
+    # Act
+    load.run(df=df, spark=spark, config=config(), context=context())
+
+    # Assert
+    assert events == ["load"]

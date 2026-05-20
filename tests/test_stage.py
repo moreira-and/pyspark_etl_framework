@@ -129,6 +129,7 @@ def test_stage_does_not_fail_when_sink_fails() -> None:
     # Assert
     assert result == "ok"
 
+
 def test_stage_logs_failed_and_wraps_generic_exception() -> None:
     # Arrange
     probe = StageProbe()

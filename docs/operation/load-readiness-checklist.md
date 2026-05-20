@@ -31,7 +31,7 @@ Preencha para cada pipeline:
 | Falha antes do commit | Falha simulada antes da escrita final nao deixa carga parcial. | Teste ou limitacao formal. |
 | Falha depois do commit | Comportamento de falha em `_certify` e retry esta documentado. | Teste ou procedimento manual. |
 | Certificacao | `_certify` produz evidencia do destino real quando isso for exigido. | Log, metrica ou consulta de destino. |
-| Coluna `is_valid` | Destino aceita `is_valid` ou o load projeta apenas colunas de negocio. | Assert/teste de schema final. |
+| Colunas tecnicas | Default preserva colunas tecnicas antes de `_load`; se `keep_technical_columns=False`, o destino recebe apenas colunas de negocio. | Assert/teste de schema final. |
 | Volume | Volume esperado tem minimo, maximo e responsavel por excecoes. | Teste com `assert_volume_between` ou metrica equivalente. |
 | Freshness | Janela/freshness esta definida quando aplicavel. | Check de coluna, particao ou watermark. |
 | Reconciliacao | Escopo carregado pode ser reconciliado com a origem quando aplicavel. | Check por chave, contagem ou metrica. |

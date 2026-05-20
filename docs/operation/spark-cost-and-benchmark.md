@@ -12,7 +12,8 @@ Spark para que a equipe avalie custo por pipeline.
 | --- | --- | --- | --- |
 | `auto_check_source` | Nenhuma acao; usa schema do `DataFrame`. | Baixo, sem job Spark intencional. | Validar nomes e tipos da origem. |
 | `validate_struct(..., compute_summary=False)` | Nenhuma acao intencional. | Baixo ate a proxima acao do usuario. | Criar `is_valid` sem resumo agregado. |
-| `auto_validate_target` | `filter(...).limit(1).count()` via `assert_no_invalid_records`. | Um job pequeno para detectar pelo menos um invalido. | Bloquear invalidos antes do `load`. |
+| `auto_validate_target` caminho feliz | `filter(...).limit(1).count()`. | Um job pequeno para detectar pelo menos um invalido. | Bloquear invalidos antes do `load`. |
+| `auto_validate_target` com invalidos | `count()` dos invalidos e summary dos checks declarativos. | Mais caro, executado apenas no caminho de falha para diagnostico. | Informar quantidade de invalidos e checks com falha. |
 | `assert_no_invalid_records` | `filter(...).limit(1).count()`. | Um job pequeno, dependente de particionamento e predicado. | Gate explicito antes de escrita. |
 | `assert_target_key_not_null` | `filter(...).limit(1).count()`. | Um job pequeno para encontrar nulo. | Check de pipeline concreta. |
 | `assert_target_key_unique` | `groupBy(...).count()` e `limit(1).count()`. | Pode gerar shuffle. | Usar sob revisao para chaves de load. |

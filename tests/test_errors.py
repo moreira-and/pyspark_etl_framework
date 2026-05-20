@@ -8,6 +8,7 @@ from etl_framework.infra.errors import (
     EtlError,
     ExtractError,
     LoadError,
+    PreflightError,
     TransformError,
     ValidateError,
     ensure_stage_error,
@@ -24,6 +25,7 @@ from etl_framework.utils.sanitization import sanitize_error_message
         (ValidateError, "validate"),
         (LoadError, "load"),
         (CertifyError, "certify"),
+        (PreflightError, "preflight"),
     ],
 )
 def test_stage_errors_include_trace_context_in_attributes_and_message(

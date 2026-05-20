@@ -15,6 +15,7 @@ from etl_framework.infra.errors import (
     EtlError,
     ExtractError,
     LoadError,
+    PreflightError,
     TransformError,
     ValidateError,
 )
@@ -316,6 +317,66 @@ def test_run_executes_official_order(spark: SparkSession) -> None:
         "is_valid",
     ]
     assert load_step.certified_row_count == 3
+
+
+def test_pipeline_preflight_fails_before_extract_when_source_struct_is_missing(
+    spark: SparkSession,
+) -> None:
+    # Arrange
+    events: list[str] = []
+    pipeline, load_step = build_pipeline(
+        spark,
+        events,
+        config=make_config(source_struct=None),
+    )
+
+    # Act / Assert
+    with pytest.raises(PreflightError, match="source_struct") as error_info:
+        pipeline.run()
+
+    error = error_info.value
+    assert error.pipeline_name == PIPELINE_NAME
+    assert error.run_id == RUN_ID
+    assert error.stage == "preflight"
+    assert events == []
+    assert load_step.loaded_rows == []
+
+
+def test_pipeline_preflight_fails_before_extract_when_target_struct_is_missing(
+    spark: SparkSession,
+) -> None:
+    # Arrange
+    events: list[str] = []
+    pipeline, _ = build_pipeline(
+        spark,
+        events,
+        config=make_config(target_struct=None),
+    )
+
+    # Act / Assert
+    with pytest.raises(PreflightError, match="target_struct") as error_info:
+        pipeline.run()
+
+    assert error_info.value.run_id == RUN_ID
+    assert error_info.value.stage == "preflight"
+    assert events == []
+
+
+def test_pipeline_preflight_rechecks_target_key_consistency_before_extract(
+    spark: SparkSession,
+) -> None:
+    # Arrange
+    events: list[str] = []
+    run_config = make_config()
+    object.__setattr__(run_config, "target_key", ("missing_order_id",))
+    pipeline, _ = build_pipeline(spark, events, config=run_config)
+
+    # Act / Assert
+    with pytest.raises(PreflightError, match="target_key") as error_info:
+        pipeline.run()
+
+    assert error_info.value.stage == "preflight"
+    assert events == []
 
 
 def test_pipeline_run_emits_required_observability_events_on_success(

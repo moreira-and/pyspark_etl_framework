@@ -7,6 +7,8 @@ from pyspark.sql.types import StructType
 
 from etl_framework.utils.schema_metadata import SchemaMetadataValidator
 
+EXTRA_COLUMNS_POLICIES = frozenset({"ignore", "warn", "fail"})
+
 
 @dataclass(frozen=True, slots=True)
 class EtlRunConfig:
@@ -35,6 +37,8 @@ class EtlRunConfig:
     dry_run_limit: int = 100
     dry_run_show_rows: int = 0
     strict_schema: bool = False
+    extra_columns_policy: str = "ignore"
+    keep_technical_columns: bool = True
 
     source_struct: StructType | None = None
     target_struct: StructType | None = None
@@ -97,6 +101,28 @@ class EtlRunConfig:
 
         if not isinstance(self.strict_schema, bool):
             raise ValueError("strict_schema must be a boolean")
+
+        if not isinstance(self.keep_technical_columns, bool):
+            raise ValueError("keep_technical_columns must be a boolean")
+
+        if not isinstance(self.extra_columns_policy, str):
+            raise ValueError("extra_columns_policy must be a string")
+
+        extra_columns_policy = self.extra_columns_policy.strip().lower()
+        if extra_columns_policy not in EXTRA_COLUMNS_POLICIES:
+            raise ValueError(
+                "extra_columns_policy must be one of "
+                f"{sorted(EXTRA_COLUMNS_POLICIES)}"
+            )
+
+        if self.strict_schema and extra_columns_policy == "ignore":
+            extra_columns_policy = "warn"
+
+        object.__setattr__(
+            self,
+            "extra_columns_policy",
+            extra_columns_policy,
+        )
 
         if self.dry_run_limit <= 0:
             raise ValueError("dry_run_limit must be greater than zero")
