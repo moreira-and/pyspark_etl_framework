@@ -32,9 +32,17 @@ class SchemaMetadataValidator:
             self._validate_field(field, self.name)
 
     def check_reserved_columns(self, reserved: frozenset[str]) -> None:
-        """Reject reserved technical columns in a declared schema."""
+        """Reject reserved technical columns (case-insensitive) in a declared schema.
+        
+        Args:
+            reserved: Set of reserved column names (should be lowercase).
+        """
+        # Normalize reserved names to lowercase for case-insensitive comparison
+        reserved_lower = {name.lower() for name in reserved}
+        
         used_reserved = [
-            field.name for field in self.struct.fields if field.name.lower() in reserved
+            field.name for field in self.struct.fields 
+            if field.name.lower() in reserved_lower
         ]
 
         if used_reserved:
@@ -48,17 +56,23 @@ class SchemaMetadataValidator:
         path = f"{parent}.{field.name}"
         metadata = field.metadata or {}
 
-        if description := metadata.get("description"):
+        # Validate description if present
+        description = metadata.get("description")
+        if description is not None:
             self._validate_string_field(description, "description", path)
 
+        # Validate checks if present
         if "checks" in metadata and metadata.get("checks") is not None:
             checks = metadata["checks"]
             if not isinstance(checks, (list, tuple)):
                 raise TypeError(f"{path}.checks must be list/tuple")
 
             for index, check in enumerate(checks):
-                CheckMetadataValidator(check, field.name, f"{path}[{index}]").validate()
+                CheckMetadataValidator(
+                    check, field.name, f"{path}.checks[{index}]"
+                ).validate()
 
+        # Recursively validate nested structs
         if isinstance(field.dataType, StructType):
             SchemaMetadataValidator(field.dataType, path).validate()
 
@@ -73,8 +87,8 @@ class CheckMetadataValidator:
     """Validate one declarative quality check from StructField metadata."""
 
     SQL_INVALID_OPERATORS = {
-        r"\>\>": "> (greater than)",
-        r"\<\<": "< (less than)",
+        r">>": "> (greater than)",
+        r"<<": "< (less than)",
         r"===": "= or == (equality)",
         r"!==": "!= or <> (inequality)",
     }
@@ -96,9 +110,11 @@ class CheckMetadataValidator:
 
     def _validate_sql_rule(self, rule: str) -> None:
         """Validate simple SQL expression mistakes without executing the rule."""
+        # Check balanced parentheses
         if rule.count("(") != rule.count(")"):
             raise ValueError(f"{self.path}: Unbalanced parentheses in '{rule}'")
 
+        # Check for invalid operators
         for pattern, suggestion in self.SQL_INVALID_OPERATORS.items():
             if re.search(pattern, rule):
                 raise ValueError(
@@ -106,10 +122,11 @@ class CheckMetadataValidator:
                     f"  Suggestion: use {suggestion}"
                 )
 
+        # Warn if rule doesn't reference the field
         field_refs = [self.field_name, f"`{self.field_name}`"]
         if not any(ref in rule for ref in field_refs):
             warnings.warn(
                 f"{self.path}: Rule does not reference field '{self.field_name}'",
                 UserWarning,
-                stacklevel=5,
+                stacklevel=2,  # Points to the caller of validate()
             )

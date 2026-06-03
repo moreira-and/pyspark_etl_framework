@@ -17,14 +17,10 @@ class EtlRunConfig:
     This model describes the execution contract shared by the framework and a
     concrete pipeline. It should stay small: the framework uses it to identify
     the pipeline, target metadata, dry-run behavior and optional StructType
-    declarations. It validates configuration shape and declarative check
-    metadata, but does not execute extract, transform or load logic.
-    start_window and end_window describe the extraction window available to the
-    extract step.
+    declarations.
 
     Technical columns listed in TECHNICAL_COLUMNS are reserved for framework
-    runtime metadata. They must not be declared in target_struct. For example,
-    validate_struct creates is_valid at runtime when structural checks run.
+    runtime metadata. They must not be declared in target_struct.
     """
 
     pipeline_name: str
@@ -48,82 +44,78 @@ class EtlRunConfig:
 
     write_mode: str | None = None
 
-    TECHNICAL_COLUMNS: ClassVar[frozenset[str]] = frozenset(
-        {
-            "inserted_at",
-            "updated_at",
-            "etl_run_at",
-            "etl_run_id",
-            "is_valid",
-        }
-    )
+    TECHNICAL_COLUMNS: ClassVar[frozenset[str]] = frozenset({
+        "inserted_at",
+        "updated_at",
+        "etl_run_at",
+        "etl_run_id",
+        "is_valid",
+    })
 
     def __post_init__(self) -> None:
-        """Validate the configuration immediately after creation."""
+        """Validate and normalize configuration after creation."""
+        # Normalize target_key to tuple
         if isinstance(self.target_key, str):
-            raise ValueError("target_key must contain non-empty strings, not a string")
-
-        if self.target_key is not None:
-            try:
-                object.__setattr__(self, "target_key", tuple(self.target_key))
-            except TypeError as exc:
-                raise ValueError(
-                    "target_key must contain only non-empty strings"
-                ) from exc
-
-        self._validate_basic_config()
-        self._validate_schemas()
+            raise ValueError("target_key must be a tuple of strings, not a single string")
+        
+        try:
+            normalized_key = tuple(self.target_key) if self.target_key else ()
+        except TypeError as exc:
+            raise ValueError("target_key must be iterable of strings") from exc
+        
+        object.__setattr__(self, "target_key", normalized_key)
+        
+        # Normalize extra_columns_policy
+        policy = self.extra_columns_policy.strip().lower()
+        if policy not in EXTRA_COLUMNS_POLICIES:
+            raise ValueError(
+                f"extra_columns_policy must be one of {sorted(EXTRA_COLUMNS_POLICIES)}, "
+                f"got '{self.extra_columns_policy}'"
+            )
+        
+        # Auto-upgrade policy if strict_schema is enabled
+        if self.strict_schema and policy == "ignore":
+            policy = "warn"
+        
+        object.__setattr__(self, "extra_columns_policy", policy)
+        
+        # Run validations
+        self._validate()
 
     @property
     def full_target_table_name(self) -> str:
         """Return the target table name in schema.table format."""
         return f"{self.target_schema}.{self.target_table}"
 
-    def _validate_basic_config(self) -> None:
-        """Validate the minimum fields required to orient the ETL flow."""
-        if not self.pipeline_name.strip():
-            raise ValueError("pipeline_name cannot be empty")
+    def _validate(self) -> None:
+        """Validate all configuration constraints."""
+        self._validate_required_strings()
+        self._validate_target_key()
+        self._validate_dry_run_config()
+        self._validate_windows()
+        self._validate_write_mode()
+        self._validate_schemas()
 
-        if not self.target_schema.strip():
-            raise ValueError("target_schema cannot be empty")
+    def _validate_required_strings(self) -> None:
+        """Validate required string fields are non-empty."""
+        required_fields = {
+            "pipeline_name": self.pipeline_name,
+            "target_schema": self.target_schema,
+            "target_table": self.target_table,
+            "target_path": self.target_path,
+        }
+        
+        for field_name, value in required_fields.items():
+            if not value or not value.strip():
+                raise ValueError(f"{field_name} cannot be empty")
 
-        if not self.target_table.strip():
-            raise ValueError("target_table cannot be empty")
-
-        if not self.target_path.strip():
-            raise ValueError("target_path cannot be empty")
-
-        if any(not isinstance(key, str) or not key.strip() for key in self.target_key):
+    def _validate_target_key(self) -> None:
+        """Validate target_key contains only non-empty strings."""
+        if not all(isinstance(key, str) and key.strip() for key in self.target_key):
             raise ValueError("target_key must contain only non-empty strings")
 
-        if not isinstance(self.dry_run, bool):
-            raise ValueError("dry_run must be a boolean")
-
-        if not isinstance(self.strict_schema, bool):
-            raise ValueError("strict_schema must be a boolean")
-
-        if not isinstance(self.keep_technical_columns, bool):
-            raise ValueError("keep_technical_columns must be a boolean")
-
-        if not isinstance(self.extra_columns_policy, str):
-            raise ValueError("extra_columns_policy must be a string")
-
-        extra_columns_policy = self.extra_columns_policy.strip().lower()
-        if extra_columns_policy not in EXTRA_COLUMNS_POLICIES:
-            raise ValueError(
-                "extra_columns_policy must be one of "
-                f"{sorted(EXTRA_COLUMNS_POLICIES)}"
-            )
-
-        if self.strict_schema and extra_columns_policy == "ignore":
-            extra_columns_policy = "warn"
-
-        object.__setattr__(
-            self,
-            "extra_columns_policy",
-            extra_columns_policy,
-        )
-
+    def _validate_dry_run_config(self) -> None:
+        """Validate dry run configuration."""
         if self.dry_run_limit <= 0:
             raise ValueError("dry_run_limit must be greater than zero")
 
@@ -132,32 +124,25 @@ class EtlRunConfig:
 
         if not self.dry_run and self.dry_run_show_rows > 0:
             raise ValueError(
-                "dry_run_show_rows can be greater than zero only when dry_run=True"
+                "dry_run_show_rows can only be set when dry_run=True"
             )
 
-        if self.start_window is not None:
-            if not isinstance(self.start_window, str) or not self.start_window.strip():
-                raise ValueError("start_window must be a non-empty string when set")
+    def _validate_windows(self) -> None:
+        """Validate extraction window parameters."""
+        for window_name in ("start_window", "end_window"):
+            value = getattr(self, window_name)
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(f"{window_name} must be a non-empty string when set")
 
-        if self.end_window is not None:
-            if not isinstance(self.end_window, str) or not self.end_window.strip():
-                raise ValueError("end_window must be a non-empty string when set")
-
-        if self.write_mode is not None and self.write_mode not in {
-            "overwrite",
-            "append",
-        }:
+    def _validate_write_mode(self) -> None:
+        """Validate write mode is a supported value."""
+        if self.write_mode is not None and self.write_mode not in {"overwrite", "append"}:
             raise ValueError(
-                "write_mode must be None, 'overwrite' or 'append', "
-                f"got '{self.write_mode}'"
+                f"write_mode must be None, 'overwrite' or 'append', got '{self.write_mode}'"
             )
 
     def _validate_schemas(self) -> None:
-        """Validate optional StructType declarations and check metadata.
-
-        target_struct describes business output columns. Framework technical
-        columns are rejected here because they can be added during execution.
-        """
+        """Validate optional StructType declarations and check metadata."""
         if self.source_struct is not None:
             SchemaMetadataValidator(self.source_struct, "source_struct").validate()
 
@@ -169,9 +154,7 @@ class EtlRunConfig:
 
     def _validate_target_key_in_target_struct(self) -> None:
         """Ensure target keys refer to declared business output columns."""
-        if self.target_struct is None:
-            return
-        if not self.target_key:
+        if not self.target_struct or not self.target_key:
             return
 
         target_columns = {field.name for field in self.target_struct.fields}
@@ -179,6 +162,21 @@ class EtlRunConfig:
 
         if missing_keys:
             raise ValueError(
-                "target_key contains columns not present in target_struct: "
-                f"{missing_keys}"
+                f"target_key contains columns not in target_struct: {missing_keys}"
             )
+    
+    def dry_run_extract_metadata(self) -> dict[str, object]:
+        """Return metadata for dry run extract stage."""
+        return {"dry_run_limit": self.dry_run_limit}
+    
+    def dry_run_sample_metadata(self) -> dict[str, object]:
+        """Return metadata for dry run sample stage."""
+        return {"dry_run_show_rows": self.dry_run_show_rows}
+    
+    def dry_run_evidence_metadata(self) -> dict[str, object]:
+        """Return complete dry run evidence metadata."""
+        return {
+            "dry_run": self.dry_run,  # Inclui flag dry_run
+            "dry_run_limit": self.dry_run_limit,
+            "dry_run_show_rows": self.dry_run_show_rows,
+        }

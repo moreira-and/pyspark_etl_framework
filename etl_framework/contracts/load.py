@@ -5,14 +5,11 @@ from abc import ABC, abstractmethod
 from pyspark.sql import DataFrame, SparkSession
 
 from etl_framework.infra.errors import CertifyError, LoadError
-from etl_framework.infra.stage import runtime_event, stage
+from etl_framework.infra.decorators import runtime_event, stage
 from etl_framework.models.config import EtlRunConfig
 from etl_framework.models.context import EtlExecutionContext
 from etl_framework.utils.dataframe_checks import require_dataframe
-from etl_framework.utils.stage_metadata import (
-    dry_run_evidence_metadata,
-    dry_run_sample_metadata,
-)
+
 
 
 class Load(ABC):
@@ -77,7 +74,7 @@ class Load(ABC):
         "dry_run_evidence",
         stage_name="load",
         status="skipped",
-        extra=dry_run_evidence_metadata,
+        extra=lambda config, context: config.dry_run_evidence_metadata(),
     )
     def _run_dry_run(
         self,
@@ -100,7 +97,7 @@ class Load(ABC):
         "dry_run_sample_requested",
         stage_name="load",
         status="sample_requested",
-        extra=dry_run_sample_metadata,
+        extra=lambda config, context: config.dry_run_sample_metadata(),
         timing="started",
     )
     def _show_dry_run_sample(

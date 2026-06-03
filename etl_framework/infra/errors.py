@@ -52,46 +52,54 @@ class EtlError(Exception):
 
         return f"{base_message} ({', '.join(details)})"
 
+    def with_context(
+        self,
+        *,
+        pipeline_name: str | None = None,
+        run_id: str | None = None,
+    ) -> EtlError:
+        """Return a copy with enriched context (avoids recreating from string)."""
+        return type(self)(
+            message=self.args[0] if self.args else None,  # Usa mensagem original
+            pipeline_name=self.pipeline_name or pipeline_name,
+            stage=self.stage,
+            run_id=self.run_id or run_id,
+            cause=self.cause,  # Preserva causa original
+        )
+
 
 class ExtractError(EtlError):
     """Raised when the official extract stage fails."""
-
     default_stage = "extract"
 
 
 class CheckError(EtlError):
     """Raised when the official check stage fails."""
-
     default_stage = "check"
 
 
 class TransformError(EtlError):
     """Raised when the official transform stage fails."""
-
     default_stage = "transform"
 
 
 class ValidateError(EtlError):
     """Raised when the official validate stage fails."""
-
     default_stage = "validate"
 
 
 class LoadError(EtlError):
     """Raised when the official load stage fails."""
-
     default_stage = "load"
 
 
 class CertifyError(EtlError):
     """Raised when the official certify stage fails."""
-
     default_stage = "certify"
 
 
 class PreflightError(EtlError):
     """Raised before extraction when a run configuration cannot execute safely."""
-
     default_stage = "preflight"
 
 
@@ -108,22 +116,23 @@ def ensure_stage_error(
     or framework errors raised without context, are wrapped in the expected
     stage-specific error type.
     """
+    if not issubclass(error_type, EtlError):
+        raise TypeError(f"error_type must be a subclass of EtlError, got {error_type}")
+
     if isinstance(exc, EtlError):
+        # Check if error already has complete context
         has_trace_context = exc.pipeline_name and exc.stage
         has_run_context = run_id is None or exc.run_id
+        
         if has_trace_context and has_run_context:
-            return exc
+            return exc  # Already complete
+        
+        # Enrich existing EtlError with missing context
+        return exc.with_context(pipeline_name=pipeline_name, run_id=run_id)
 
-        return type(exc)(
-            message=str(exc) or None,
-            pipeline_name=exc.pipeline_name or pipeline_name,
-            stage=exc.stage,
-            run_id=exc.run_id or run_id,
-            cause=exc.cause or exc,
-        )
-
+    # Wrap non-EtlError exceptions
     return error_type(
-        message=str(exc) or None,
+        message=str(exc) if str(exc) else None,
         pipeline_name=pipeline_name,
         run_id=run_id,
         cause=exc,

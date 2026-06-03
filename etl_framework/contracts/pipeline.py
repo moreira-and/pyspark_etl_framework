@@ -6,7 +6,7 @@ from etl_framework.contracts.extract import Extract
 from etl_framework.contracts.load import Load
 from etl_framework.contracts.transform import Transform
 from etl_framework.infra.errors import PreflightError
-from etl_framework.infra.stage import stage
+from etl_framework.infra.decorators import stage
 from etl_framework.models.config import EtlRunConfig
 from etl_framework.models.context import EtlExecutionContext
 

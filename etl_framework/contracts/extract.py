@@ -5,12 +5,12 @@ from abc import ABC, abstractmethod
 from pyspark.sql import DataFrame, SparkSession
 
 from etl_framework.infra.errors import CheckError, ExtractError
-from etl_framework.infra.stage import runtime_event, stage
+from etl_framework.infra.decorators import runtime_event, stage
 from etl_framework.models.config import EtlRunConfig
 from etl_framework.models.context import EtlExecutionContext
 from etl_framework.utils.auto_quality import auto_check_source
 from etl_framework.utils.dataframe_checks import require_dataframe
-from etl_framework.utils.stage_metadata import dry_run_extract_metadata
+ 
 
 
 class Extract(ABC):
@@ -86,7 +86,7 @@ class Extract(ABC):
         "dry_run_extract_limited",
         stage_name="extract",
         status="limited",
-        extra=dry_run_extract_metadata,
+        extra=lambda config, context: config.dry_run_extract_metadata(),
     )
     def _limit_dry_run_extract(
         self,

@@ -97,25 +97,26 @@ def _validate_schema_match(
     extra_columns_policy: str = "ignore",
 ) -> None:
     """Validate expected columns and apply the configured extra-column policy."""
-    actual = {field.name: field.dataType for field in df.schema.fields}
-    expected_columns = {field.name for field in expected.fields}
+    expected_types = {
+        field.name: field.dataType.simpleString() for field in expected.fields
+    }
+    actual_types = {
+        field.name: field.dataType.simpleString() for field in df.schema.fields
+    }
+    expected_columns = set(expected_types.keys())
+
     resolved_extra_columns_policy = _resolve_extra_columns_policy(
         strict=strict,
         extra_columns_policy=extra_columns_policy,
     )
 
     errors = []
-    for field in expected.fields:
-        if field.name not in actual:
-            errors.append(f"ERROR: Missing column '{field.name}'")
-            continue
-
-        expected_type = field.dataType.simpleString()
-        actual_type = actual[field.name].simpleString()
-
-        if expected_type != actual_type:
+    for name, expected_type in expected_types.items():
+        if name not in actual_types:
+            errors.append(f"ERROR: Missing column '{name}'")
+        elif actual_types[name] != expected_type:
             errors.append(
-                f"ERROR: '{field.name}': expected {expected_type}, got {actual_type}"
+                f"ERROR: '{name}': expected {expected_type}, got {actual_types[name]}"
             )
 
     extra_columns = [
@@ -218,13 +219,11 @@ def _validate_check_rules(df: DataFrame, checks: list[Check]) -> None:
     for check in checks:
         rule = check["rule"]
         try:
-            rule_df = df.select(F.expr(rule).cast("boolean").alias(check["alias"]))
-            _ = rule_df.schema
+            df.select(F.expr(rule).cast("boolean").alias(check["alias"]))
         except Exception as exc:
             available_columns = ", ".join(df.columns)
             raise ValueError(
-                "Invalid SQL check rule "
-                f"'{check['name']}' for field '{check['field']}': {rule}. "
+                f"Invalid SQL check rule '{check['name']}' for field '{check['field']}': {rule}. "
                 f"Available columns: [{available_columns}]. "
                 f"Spark error: {type(exc).__name__}: {exc}"
             ) from exc
@@ -250,7 +249,7 @@ def _build_summary_single_batch(
     counts_row = df_with_flags.agg(*[_failed_count(check) for check in checks])
     counts_long = _counts_row_to_long(counts_row, checks)
 
-    return _join_with_metadata_python(df.sparkSession, checks, counts_long)
+    return _join_with_metadata_spark(df.sparkSession, checks, counts_long)
 
 
 def _all_checks_pass(checks: list[Check]) -> Any:
@@ -283,41 +282,45 @@ def _counts_row_to_long(
 ) -> DataFrame:
     """Convert one wide aggregate row into alias/failed_count rows."""
     aliases = [check["alias"] for check in checks]
-    return counts_row.select(
-        F.explode(
-            F.arrays_zip(
-                F.array(*[F.lit(alias) for alias in aliases]).alias("alias"),
-                F.array(*[F.col(alias) for alias in aliases]).alias("failed_count"),
-            )
-        ).alias("data")
-    ).select(
-        F.col("data.alias").alias("alias"),
-        F.col("data.failed_count").cast("long").alias("failed_count"),
+    
+    # Use stack() for more idiomatic Spark pivoting
+    stack_args = ", ".join(f"'{alias}', `{alias}`" for alias in aliases)
+    stack_expr = f"stack({len(aliases)}, {stack_args}) as (alias, failed_count)"
+    
+    return counts_row.selectExpr(stack_expr).select(
+        F.col("alias"),
+        F.col("failed_count").cast("long").alias("failed_count")
     )
 
 
-def _join_with_metadata_python(
+def _join_with_metadata_spark(
     spark: SparkSession,
     checks: list[Check],
     counts_df: DataFrame,
 ) -> DataFrame:
-    """Join small check metadata with aggregated failed counts."""
-    counts_map = {row.alias: row.failed_count for row in counts_df.collect()}
-
-    result_rows = [
+    """Join small check metadata with aggregated failed counts using Spark."""
+    # Create metadata DataFrame in Spark
+    metadata_rows = [
         Row(
+            alias=check["alias"],
             field=check["field"],
             check=check["name"],
             severity=check["severity"],
             message=check["message"],
             rule=check["rule"],
-            failed_count=counts_map.get(check["alias"], 0),
-            passed=counts_map.get(check["alias"], 0) == 0,
         )
         for check in checks
     ]
-
-    return spark.createDataFrame(result_rows)
+    metadata_df = spark.createDataFrame(metadata_rows)
+    
+    # Join with counts and add derived columns
+    return (
+        metadata_df
+        .join(counts_df, on="alias", how="left")
+        .withColumn("failed_count", F.coalesce(F.col("failed_count"), F.lit(0)))
+        .withColumn("passed", F.col("failed_count") == 0)
+        .select("field", "check", "severity", "message", "rule", "failed_count", "passed")
+    )
 
 
 def _build_summary_batched(df: DataFrame, checks: list[Check]) -> DataFrame:
@@ -341,4 +344,10 @@ def _empty_summary_df(spark: SparkSession) -> DataFrame:
 
 def _safe_alias(value: str) -> str:
     """Convert a field path into a SQL-safe alias."""
-    return re.sub(r"[^a-zA-Z0-9_]", "_", value)
+    safe = re.sub(r"[^a-zA-Z0-9_]", "_", value)
+    
+    # Ensure it starts with a letter or underscore (SQL requirement)
+    if safe and safe[0].isdigit():
+        safe = f"_{safe}"
+    
+    return safe or "_unnamed"

@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from pyspark.sql import DataFrame, SparkSession
 
 from etl_framework.infra.errors import TransformError, ValidateError
-from etl_framework.infra.stage import stage
+from etl_framework.infra.decorators import stage
 from etl_framework.models.config import EtlRunConfig
 from etl_framework.models.context import EtlExecutionContext
 from etl_framework.utils.auto_quality import auto_validate_target

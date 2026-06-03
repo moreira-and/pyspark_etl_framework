@@ -13,9 +13,10 @@ class EtlExecutionContext:
     This object is intentionally small. It represents execution traceability,
     not a generic state bag for pipeline logic. Concrete pipelines should use
     it only to read run metadata such as the run id and start timestamp.
-    Pipelines may also publish explicitly computed operational metrics here;
-    the framework only logs these values and never computes Spark actions for
-    them.
+    
+    Pipelines may publish explicitly computed operational metrics here via
+    direct assignment (e.g., context.metrics["rows_processed"] = 1000).
+    The framework only logs these values and never computes Spark actions for them.
     """
 
     run_id: str = field(default_factory=lambda: str(uuid4()))
@@ -24,7 +25,5 @@ class EtlExecutionContext:
 
     def __post_init__(self) -> None:
         """Validate minimum traceability fields for one execution."""
-        if not isinstance(self.run_id, str) or not self.run_id.strip():
+        if not self.run_id or not self.run_id.strip():
             raise ValueError("run_id must be a non-empty string")
-        if not isinstance(self.metrics, dict):
-            raise ValueError("metrics must be a dict")
