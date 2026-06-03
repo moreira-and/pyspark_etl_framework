@@ -50,3 +50,32 @@ def sanitize_error_message(message: object) -> str:
     text = _PATH_RE.sub(rf"\1={_REDACTED}", text)
     
     return text
+
+
+def sanitize_with_metadata(message: object, *, metadata: dict | None = None) -> str:
+    """Sanitize an error message with optional metadata-driven policy.
+
+    `metadata` may contain a `sanitize_level` key with values:
+    - `full`: aggressive redaction (default behaviour)
+    - `partial`: redact only credentials and bearer tokens
+    - `none`: perform minimal sanitization (paths/payloads preserved)
+
+    This is an opt-in helper: callers can pass per-StructField metadata to
+    control how error messages that include data are redacted. It's a
+    non-invasive sketch that preserves existing `sanitize_error_message`.
+    """
+    level = (metadata or {}).get("sanitize_level", "full")
+
+    text = str(message)
+
+    if level == "none":
+        return text
+
+    if level == "partial":
+        # Partial: redact URIs and bearer tokens only
+        text = _URI_CREDENTIAL_RE.sub(rf"\1{_REDACTED}:{_REDACTED}@", text)
+        text = _BEARER_RE.sub(f"Bearer {_REDACTED}", text)
+        return text
+
+    # full (default)
+    return sanitize_error_message(text)

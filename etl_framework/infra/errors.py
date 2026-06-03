@@ -108,7 +108,7 @@ def ensure_stage_error(
     error_type: type[EtlError],
     *,
     pipeline_name: str,
-    run_id: str | None = None,
+    run_id: str,
 ) -> EtlError:
     """Return an EtlError that includes pipeline, run and stage context.
 
@@ -119,14 +119,17 @@ def ensure_stage_error(
     if not issubclass(error_type, EtlError):
         raise TypeError(f"error_type must be a subclass of EtlError, got {error_type}")
 
+    if run_id is None:
+        raise ValueError("run_id is required when wrapping exceptions")
+
     if isinstance(exc, EtlError):
-        # Check if error already has complete context
-        has_trace_context = exc.pipeline_name and exc.stage
-        has_run_context = run_id is None or exc.run_id
-        
+        # Check if error already has complete trace+stage context
+        has_trace_context = bool(exc.pipeline_name and exc.stage)
+        has_run_context = bool(exc.run_id)
+
         if has_trace_context and has_run_context:
             return exc  # Already complete
-        
+
         # Enrich existing EtlError with missing context
         return exc.with_context(pipeline_name=pipeline_name, run_id=run_id)
 

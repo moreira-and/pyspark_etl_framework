@@ -7,6 +7,7 @@ from typing import Any
 from pyspark.sql.types import StructField, StructType
 
 from etl_framework.utils.check_metadata import normalize_check_metadata
+from etl_framework.utils.sanitization import sanitize_with_metadata
 
 
 class SchemaMetadataValidator:
@@ -61,20 +62,33 @@ class SchemaMetadataValidator:
         if description is not None:
             self._validate_string_field(description, "description", path)
 
-        # Validate checks if present
-        if "checks" in metadata and metadata.get("checks") is not None:
-            checks = metadata["checks"]
-            if not isinstance(checks, (list, tuple)):
-                raise TypeError(f"{path}.checks must be list/tuple")
+        try:
+            # Validate checks if present
+            if "checks" in metadata and metadata.get("checks") is not None:
+                checks = metadata["checks"]
+                if not isinstance(checks, (list, tuple)):
+                    raise TypeError(f"{path}.checks must be list/tuple")
 
-            for index, check in enumerate(checks):
-                CheckMetadataValidator(
-                    check, field.name, f"{path}.checks[{index}]"
-                ).validate()
+                for index, check in enumerate(checks):
+                    CheckMetadataValidator(
+                        check, field.name, f"{path}.checks[{index}]"
+                    ).validate()
 
-        # Recursively validate nested structs
-        if isinstance(field.dataType, StructType):
-            SchemaMetadataValidator(field.dataType, path).validate()
+            # Validate sanitize_level if present
+            if "sanitize_level" in metadata:
+                sanitize_level = metadata["sanitize_level"]
+                if sanitize_level not in {"none", "partial", "full"}:
+                    raise ValueError(
+                        f"{path}.sanitize_level must be one of ('none', 'partial', 'full')"
+                    )
+
+            # Recursively validate nested structs
+            if isinstance(field.dataType, StructType):
+                SchemaMetadataValidator(field.dataType, path).validate()
+
+        except Exception as exc:
+            sanitized_message = sanitize_with_metadata(str(exc), metadata=metadata)
+            raise type(exc)(sanitized_message) from exc
 
     @staticmethod
     def _validate_string_field(value: Any, field_name: str, path: str) -> None:

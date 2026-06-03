@@ -38,15 +38,25 @@ def assert_target_key_unique(df: DataFrame, keys: Iterable[str]) -> DataFrame:
     """Fail when target keys are duplicated in the loaded scope.
 
     This is an explicit production check and runs Spark aggregation.
+    For large datasets this operation may be expensive. Callers must pass
+    `allow_expensive=True` to run the aggregation in production flows.
     """
-    key_tuple = _normalize_columns(keys, "target_key")
-    _require_columns(df, key_tuple)
+    def _impl(allow_expensive: bool) -> DataFrame:
+        if not allow_expensive:
+            raise RuntimeError(
+                "assert_target_key_unique requires allow_expensive=True to run aggregation"
+            )
 
-    duplicates = df.groupBy(*key_tuple).count().filter(F.col("count") > 1)
-    if duplicates.take(1):
-        raise ValueError(f"Duplicate target key found: {key_tuple}")
+        key_tuple = _normalize_columns(keys, "target_key")
+        _require_columns(df, key_tuple)
 
-    return df
+        duplicates = df.groupBy(*key_tuple).count().filter(F.col("count") > 1)
+        if duplicates.take(1):
+            raise ValueError(f"Duplicate target key found: {key_tuple}")
+
+        return df
+
+    return _impl
 
 
 def assert_volume_between(
@@ -56,11 +66,13 @@ def assert_volume_between(
     max_rows: int | None = None,
     context: EtlExecutionContext | None = None,
     metric_name: str = "rows_read",
+    allow_expensive: bool = False,
 ) -> int:
     """Return row count and fail when it is outside the expected range.
 
-    This is an explicit production check and runs `count()`. Pass `context` when
-    the same count should also become an operational metric.
+    This is an explicit production check and runs `count()`. Use
+    `allow_expensive=True` to enable the operation explicitly.
+    Pass `context` when the same count should also become an operational metric.
     """
     if min_rows is None and max_rows is None:
         raise ValueError("min_rows or max_rows must be provided")
@@ -71,18 +83,24 @@ def assert_volume_between(
     if min_rows is not None and max_rows is not None and min_rows > max_rows:
         raise ValueError(f"min_rows ({min_rows}) cannot be greater than max_rows ({max_rows})")
 
+    if not allow_expensive:
+        raise RuntimeError(
+            "assert_volume_between performs a row count and requires allow_expensive=True to execute"
+        )
+
     row_count = df.count()
-    
+
     if context is not None:
         context.metrics[metric_name] = row_count
 
     if min_rows is not None and row_count < min_rows:
         raise ValueError(f"Row count {row_count} below expected minimum {min_rows}")
-    
+
     if max_rows is not None and row_count > max_rows:
         raise ValueError(f"Row count {row_count} above expected maximum {max_rows}")
 
     return row_count
+
 
 
 def assert_freshness_at_least(

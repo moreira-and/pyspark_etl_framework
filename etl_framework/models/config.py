@@ -66,7 +66,13 @@ class EtlRunConfig:
         object.__setattr__(self, "target_key", normalized_key)
         
         # Normalize extra_columns_policy
-        policy = self.extra_columns_policy.strip().lower()
+        try:
+            policy = str(self.extra_columns_policy).strip().lower()
+        except Exception as exc:  # pragma: no cover - defensive
+            raise ValueError(
+                "extra_columns_policy must be convertible to string"
+            ) from exc
+
         if policy not in EXTRA_COLUMNS_POLICIES:
             raise ValueError(
                 f"extra_columns_policy must be one of {sorted(EXTRA_COLUMNS_POLICIES)}, "
